@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="超级中转站模型接入与计量控制台" />
+    <title>超级中转站控制台</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230f766e'/%3E%3Cpath d='M32 10 53 22v20L32 54 11 42V22L32 10Z' fill='none' stroke='white' stroke-width='5'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <section class="auth-screen" id="authScreen">
+      <div class="auth-aside">
+        <a class="brand brand-light" href="/" aria-label="超级中转站首页">
+          <span class="brand-mark">超</span>
+          <span><strong>超级中转站</strong><small>模型接入控制台</small></span>
+        </a>
+        <div class="auth-copy">
+          <span class="kicker">UNIFIED MODEL ACCESS</span>
+          <h1>一个接口，接入你的模型能力</h1>
+          <p>统一管理模型、密钥、调用计量和账户余额。</p>
+        </div>
+        <div class="signal-grid" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+      </div>
+      <div class="auth-main">
+        <form class="auth-form" id="loginForm">
+          <div>
+            <span class="kicker">CONSOLE LOGIN</span>
+            <h2>登录控制台</h2>
+            <p>使用分配给你的账号继续。</p>
+          </div>
+          <label>邮箱<input name="email" type="email" autocomplete="email" required /></label>
+          <label>密码<input name="password" type="password" autocomplete="current-password" required /></label>
+          <p class="form-error" id="loginError" role="alert"></p>
+          <button class="button primary full" type="submit">登录</button>
+          <div class="login-note"><strong>账号说明</strong><span>客户使用管理员分配的账号；管理员使用部署配置中的账号登录。</span></div>
+        </form>
+      </div>
+    </section>
+
+    <div class="app-shell hidden" id="appShell">
+      <aside class="sidebar">
+        <a class="brand brand-light" href="#overview">
+          <span class="brand-mark">超</span>
+          <span><strong>超级中转站</strong><small id="roleLabel">客户控制台</small></span>
+        </a>
+        <nav class="nav-list" id="navList"></nav>
+        <div class="sidebar-footer">
+          <span class="avatar" id="avatar">U</span>
+          <span><strong id="userName">-</strong><small id="userEmail">-</small></span>
+          <button class="icon-button" id="logoutButton" type="button" title="退出登录" aria-label="退出登录">↪</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div><span class="kicker" id="pageKicker">DASHBOARD</span><h1 id="pageTitle">总览</h1></div>
+          <div class="top-actions" id="topActions"></div>
+        </header>
+        <div id="pageContent" aria-live="polite"></div>
+      </main>
+    </div>
+
+    <dialog id="modal">
+      <form class="modal-card" id="modalForm" method="dialog">
+        <div class="modal-head"><div><span class="kicker" id="modalKicker">CONFIGURE</span><h2 id="modalTitle">配置</h2></div><button class="icon-button" value="cancel" aria-label="关闭">×</button></div>
+        <div id="modalBody"></div>
+        <p class="form-error" id="modalError" role="alert"></p>
+        <div class="modal-actions"><button class="button secondary" value="cancel">取消</button><button class="button primary" id="modalSubmit" value="default">保存</button></div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
