@@ -4,6 +4,7 @@ set -euo pipefail
 APP_DIR="/opt/super-relay"
 REPOSITORY="https://github.com/Sahaquiel-10th/s-zhongzhuan.git"
 SOURCE_ARCHIVE="https://codeload.github.com/Sahaquiel-10th/s-zhongzhuan/tar.gz/refs/heads/main"
+NODE_IMAGE_SOURCE="${NODE_IMAGE_SOURCE:-mirror.ccs.tencentyun.com/library/node:24-alpine}"
 PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-http://118.195.247.117}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@super-relay.local}"
 
@@ -44,6 +45,11 @@ EOF
   chmod 600 .env
   printf '%s' "$admin_password" > "$HOME/super-relay-admin-password.txt"
   chmod 600 "$HOME/super-relay-admin-password.txt"
+fi
+
+sudo docker pull "$NODE_IMAGE_SOURCE"
+if [[ "$NODE_IMAGE_SOURCE" != "node:24-alpine" ]]; then
+  sudo docker tag "$NODE_IMAGE_SOURCE" node:24-alpine
 fi
 
 sudo docker-compose up --build -d
