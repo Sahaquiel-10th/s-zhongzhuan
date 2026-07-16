@@ -35,7 +35,7 @@
           <label>密码<input name="password" type="password" autocomplete="current-password" required /></label>
           <p class="form-error" id="loginError" role="alert"></p>
           <button class="button primary full" type="submit">登录</button>
-          <div class="login-note"><strong>账号说明</strong><span>客户使用管理员分配的账号；管理员使用部署配置中的账号登录。</span></div>
+          <div class="login-note"><strong>账号说明</strong><span>使用分配的账号登录；管理员使用部署配置中的账号登录。</span></div>
         </form>
       </div>
     </section>
@@ -44,9 +44,12 @@
       <aside class="sidebar">
         <a class="brand brand-light" href="#overview">
           <span class="brand-mark">超</span>
-          <span><strong>超级中转站</strong><small id="roleLabel">客户控制台</small></span>
+          <span><strong>超级中转站</strong><small id="roleLabel">API 控制台</small></span>
         </a>
         <nav class="nav-list" id="navList"></nav>
+        <button class="notice-bell hidden" id="noticeBell" data-view="notices" type="button" title="价格通知" aria-label="价格通知">
+          <span aria-hidden="true">🔔</span><i class="hidden" id="noticeDot"></i>
+        </button>
         <div class="sidebar-footer">
           <span class="avatar" id="avatar">U</span>
           <span><strong id="userName">-</strong><small id="userEmail">-</small></span>
@@ -65,10 +68,10 @@
 
     <dialog id="modal">
       <form class="modal-card" id="modalForm" method="dialog">
-        <div class="modal-head"><div><span class="kicker" id="modalKicker">CONFIGURE</span><h2 id="modalTitle">配置</h2></div><button class="icon-button" value="cancel" aria-label="关闭">×</button></div>
+        <div class="modal-head"><div><span class="kicker" id="modalKicker">CONFIGURE</span><h2 id="modalTitle">配置</h2></div><button class="icon-button" type="button" data-action="close-modal" aria-label="关闭">×</button></div>
         <div id="modalBody"></div>
         <p class="form-error" id="modalError" role="alert"></p>
-        <div class="modal-actions"><button class="button secondary" value="cancel">取消</button><button class="button primary" id="modalSubmit" value="default">保存</button></div>
+        <div class="modal-actions"><button class="button secondary" type="button" data-action="close-modal">取消</button><button class="button primary" id="modalSubmit" value="default">保存</button></div>
       </form>
     </dialog>
 

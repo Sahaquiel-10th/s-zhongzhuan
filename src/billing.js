@@ -1,6 +1,14 @@
 import { config } from './config.js';
 
-export const MICROS_PER_CNY = 1_000_000;
+export const MICROS_PER_POWER = 1_000_000;
+
+function powerToMicros(value) {
+  return Math.max(1, Math.ceil((value * MICROS_PER_POWER) - 1e-7));
+}
+
+function displayFactor(customer, reference) {
+  return reference > 0 ? Math.round((customer / reference) * 1_000_000) / 1_000_000 : null;
+}
 
 export function estimateTokens(value) {
   const text = typeof value === 'string' ? value : JSON.stringify(value || '');
@@ -28,28 +36,37 @@ export function normalizeUsage(payload, requestBody, responseBody) {
   return { inputTokens, outputTokens, cachedInputTokens };
 }
 
-export function validateDiscount(value) {
-  const discount = Number(value);
-  if (!Number.isFinite(discount) || discount <= 0 || discount > 1) {
-    throw new Error('客户折扣必须大于 0 且不超过 1');
-  }
-  return Math.round(discount * 100) / 100;
-}
-
 export function calculateBilling({ usage, route }) {
-  const inputPrice = Number(route.official_input_cny_per_million);
-  const cachedInputPrice = Number(route.official_cached_input_cny_per_million);
-  const outputPrice = Number(route.official_output_cny_per_million);
-  const discount = validateDiscount(route.customer_discount);
+  const inputPrice = Number(route.customer_input_power_per_million);
+  const cachedInputPrice = Number(route.customer_cached_input_power_per_million);
+  const outputPrice = Number(route.customer_output_power_per_million);
+  const referenceInputPrice = Number(route.reference_input_power_per_million);
+  const referenceCachedInputPrice = Number(route.reference_cached_input_power_per_million);
+  const referenceOutputPrice = Number(route.reference_output_power_per_million);
   const uncachedInputTokens = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
-  const officialCostCny = (
+  const chargedPower = (
     (uncachedInputTokens / 1_000_000) * inputPrice
     + (usage.cachedInputTokens / 1_000_000) * cachedInputPrice
     + (usage.outputTokens / 1_000_000) * outputPrice
   );
-  const officialCostMicros = Math.max(1, Math.ceil(officialCostCny * MICROS_PER_CNY));
-  const chargedCostMicros = Math.max(1, Math.ceil(officialCostMicros * discount));
-  return { officialCostCny, officialCostMicros, chargedCostMicros, discount };
+  const referencePower = (
+    (uncachedInputTokens / 1_000_000) * referenceInputPrice
+    + (usage.cachedInputTokens / 1_000_000) * referenceCachedInputPrice
+    + (usage.outputTokens / 1_000_000) * referenceOutputPrice
+  );
+  const referenceCostMicros = powerToMicros(referencePower);
+  const chargedCostMicros = powerToMicros(chargedPower);
+  const factor = referenceCostMicros > 0 ? chargedCostMicros / referenceCostMicros : 1;
+  return {
+    referencePower,
+    chargedPower,
+    referenceCostMicros,
+    chargedCostMicros,
+    factor,
+    inputFactor: displayFactor(inputPrice, referenceInputPrice),
+    cachedInputFactor: displayFactor(cachedInputPrice, referenceCachedInputPrice),
+    outputFactor: displayFactor(outputPrice, referenceOutputPrice),
+  };
 }
 
 export function reservationCost(route, body) {
@@ -65,8 +82,8 @@ export function pricingDisplay({ usage, billing }) {
   const totalTokens = usage.inputTokens + usage.outputTokens;
   return {
     tokenText: `${totalTokens.toLocaleString('zh-CN')} tokens`,
-    officialText: `官网价 ¥${(billing.officialCostMicros / MICROS_PER_CNY).toFixed(6)}`,
-    discountText: `${(billing.discount * 10).toFixed(1)} 折`,
-    chargedText: `实扣 ¥${(billing.chargedCostMicros / MICROS_PER_CNY).toFixed(6)}`,
+    referenceText: `官方参考 ${(billing.referenceCostMicros / MICROS_PER_POWER).toFixed(6)} 电力`,
+    factorText: `综合 ×${billing.factor.toFixed(2)}`,
+    chargedText: `实扣 ${(billing.chargedCostMicros / MICROS_PER_POWER).toFixed(6)} 电力`,
   };
 }

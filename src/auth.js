@@ -46,7 +46,8 @@ export async function requireCustomerApiKey(req, res, next) {
   const token = req.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1] || req.get('x-api-key');
   if (!token) return res.status(401).json({ error: { message: 'API Key 缺失', type: 'authentication_error' } });
   const { rows } = await pool.query(
-    `SELECT k.id AS api_key_id, k.tenant_id, k.name, t.balance_micros, t.reserved_micros, t.active AS tenant_active
+    `SELECT k.id AS api_key_id, k.tenant_id, k.name, k.access_mode, k.managed_route_id, k.allowed_route_id,
+            t.balance_micros, t.reserved_micros, t.active AS tenant_active
        FROM customer_api_keys k
        JOIN tenants t ON t.id = k.tenant_id
       WHERE k.key_hash = $1 AND k.active = true AND (k.expires_at IS NULL OR k.expires_at > now())`,

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateBilling, estimateTokens, normalizeUsage, reservationCost, validateDiscount } from '../src/billing.js';
+import { calculateBilling, estimateTokens, normalizeUsage, reservationCost } from '../src/billing.js';
 import { maskResponseModel, rewriteSseLine } from '../src/sanitize.js';
 
 test('estimateTokens always returns a positive integer', () => {
@@ -8,23 +8,22 @@ test('estimateTokens always returns a positive integer', () => {
   assert.equal(estimateTokens('123456'), 2);
 });
 
-test('calculateBilling applies model token prices and customer discount', () => {
+test('calculateBilling uses independent customer power prices and reference prices', () => {
   const billing = calculateBilling({
     usage: { inputTokens: 1_000_000, cachedInputTokens: 200_000, outputTokens: 100_000 },
     route: {
-      official_input_cny_per_million: 35,
-      official_cached_input_cny_per_million: 3.5,
-      official_output_cny_per_million: 210,
-      customer_discount: 0.8,
+      customer_input_power_per_million: 2.4,
+      customer_cached_input_power_per_million: 0.3,
+      customer_output_power_per_million: 12,
+      reference_input_power_per_million: 3,
+      reference_cached_input_power_per_million: 0.3,
+      reference_output_power_per_million: 15,
     },
   });
-  assert.equal(billing.officialCostMicros, 49_700_000);
-  assert.equal(billing.chargedCostMicros, 39_760_000);
-});
-
-test('validateDiscount accepts a normal discount and rejects markup', () => {
-  assert.equal(validateDiscount(0.8), 0.8);
-  assert.throws(() => validateDiscount(1.2));
+  assert.equal(billing.referenceCostMicros, 3_960_000);
+  assert.equal(billing.chargedCostMicros, 3_180_000);
+  assert.equal(billing.inputFactor, 0.8);
+  assert.equal(billing.outputFactor, 0.8);
 });
 
 test('cached input tokens are copied from supplier usage', () => {
@@ -36,10 +35,12 @@ test('cached input tokens are copied from supplier usage', () => {
 
 test('reservation includes requested maximum output tokens', () => {
   const route = {
-    official_input_cny_per_million: 35,
-    official_cached_input_cny_per_million: 3.5,
-    official_output_cny_per_million: 210,
-    customer_discount: 0.8,
+    customer_input_power_per_million: 2.4,
+    customer_cached_input_power_per_million: 0.3,
+    customer_output_power_per_million: 12,
+    reference_input_power_per_million: 3,
+    reference_cached_input_power_per_million: 0.3,
+    reference_output_power_per_million: 15,
   };
   const low = reservationCost(route, { messages: [{ role: 'user', content: 'hello' }], max_tokens: 10 });
   const high = reservationCost(route, { messages: [{ role: 'user', content: 'hello' }], max_tokens: 1000 });
