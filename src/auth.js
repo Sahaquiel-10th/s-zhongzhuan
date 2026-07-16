@@ -4,19 +4,22 @@ import { hashApiKey } from './crypto.js';
 import { pool } from './db.js';
 
 const cookieName = 'super_relay_session';
+const cookieOptions = {
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: config.publicBaseUrl.startsWith('https://'),
+};
 
 export function issueSession(res, user) {
   const token = jwt.sign({ sub: user.id, role: user.role, tenantId: user.tenant_id }, config.sessionSecret, { expiresIn: '12h' });
   res.cookie(cookieName, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: config.env === 'production',
+    ...cookieOptions,
     maxAge: 12 * 60 * 60 * 1000,
   });
 }
 
 export function clearSession(res) {
-  res.clearCookie(cookieName);
+  res.clearCookie(cookieName, cookieOptions);
 }
 
 export async function requireUser(req, res, next) {
