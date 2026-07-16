@@ -80,6 +80,7 @@ docker compose up --build -d
 ```
 
 Docker 卷 `super_relay_data` 用于持久化 SQLite 文件，不能删除或使用临时文件系统。
+容器端口只绑定到服务器本机的 `127.0.0.1:4173`，正式环境应由 Nginx 或 Caddy 反向代理到公网域名。
 
 ## 首次配置顺序
 
