@@ -3,16 +3,26 @@ set -euo pipefail
 
 APP_DIR="/opt/super-relay"
 REPOSITORY="https://github.com/Sahaquiel-10th/s-zhongzhuan.git"
+SOURCE_ARCHIVE="https://codeload.github.com/Sahaquiel-10th/s-zhongzhuan/tar.gz/refs/heads/main"
 PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-http://118.195.247.117}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@super-relay.local}"
 
 sudo mkdir -p "$APP_DIR"
 sudo chown "$(id -un):$(id -gn)" "$APP_DIR"
 
+download_archive() {
+  local archive
+  archive="$(mktemp)"
+  curl --fail --location --retry 3 "$SOURCE_ARCHIVE" --output "$archive"
+  find "$APP_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  tar -xzf "$archive" -C "$APP_DIR" --strip-components=1
+  rm -f "$archive"
+}
+
 if [[ -d "$APP_DIR/.git" ]]; then
-  git -C "$APP_DIR" pull --ff-only
-else
-  git clone "$REPOSITORY" "$APP_DIR"
+  git -C "$APP_DIR" pull --ff-only || download_archive
+elif ! git clone "$REPOSITORY" "$APP_DIR"; then
+  download_archive
 fi
 
 cd "$APP_DIR"
