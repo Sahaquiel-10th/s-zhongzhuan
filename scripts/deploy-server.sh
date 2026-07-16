@@ -12,11 +12,20 @@ sudo mkdir -p "$APP_DIR"
 sudo chown "$(id -un):$(id -gn)" "$APP_DIR"
 
 download_archive() {
-  local archive
+  local archive env_backup
   archive="$(mktemp)"
+  env_backup=""
   curl --fail --location --retry 3 "$SOURCE_ARCHIVE" --output "$archive"
+  if [[ -f "$APP_DIR/.env" ]]; then
+    env_backup="$(mktemp)"
+    cp "$APP_DIR/.env" "$env_backup"
+  fi
   find "$APP_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
   tar -xzf "$archive" -C "$APP_DIR" --strip-components=1
+  if [[ -n "$env_backup" ]]; then
+    mv "$env_backup" "$APP_DIR/.env"
+    chmod 600 "$APP_DIR/.env"
+  fi
   rm -f "$archive"
 }
 
@@ -52,6 +61,7 @@ if [[ "$NODE_IMAGE_SOURCE" != "node:24-alpine" ]]; then
   sudo docker tag "$NODE_IMAGE_SOURCE" node:24-alpine
 fi
 
+sudo docker-compose down
 sudo docker-compose up --build -d
 
 sudo tee /etc/nginx/sites-available/super-relay >/dev/null <<'NGINX'
