@@ -138,6 +138,22 @@ tr:last-child td { border-bottom: 0; }
 .model-item code { margin-top: 5px; }
 .model-item small { display: block; margin-top: 6px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .docs { max-width: 1000px; }
+.docs > h3 { margin-top: 24px; }
+.docs .step p { margin: 0 0 10px; color: #43515c; font-size: 13px; line-height: 1.75; }
+.docs .step p:last-child { margin-bottom: 0; }
+.guide-callout { display: grid; gap: 6px; margin: 14px 0 18px; padding: 14px 16px; border-left: 4px solid var(--teal); background: #f0f9f8; color: #43515c; font-size: 12px; line-height: 1.7; }
+.guide-callout strong { color: var(--teal-dark); font-size: 13px; }
+.guide-callout.warning { border-left-color: #d48a24; background: #fff8eb; }
+.guide-callout.warning strong { color: var(--amber); }
+.guide-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin: 12px 0; }
+.guide-grid.fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.guide-grid article { padding: 13px; border: 1px solid var(--line); border-radius: 6px; background: #f8fafa; }
+.guide-grid article strong { color: var(--teal-dark); font-size: 12px; }
+.guide-grid article p { margin: 7px 0 0 !important; color: var(--muted) !important; font-size: 11px !important; line-height: 1.65 !important; }
+.guide-title { margin-top: 24px; }
+.guide-checklist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.guide-checklist span { position: relative; padding: 11px 12px 11px 34px; border: 1px solid var(--line); border-radius: 6px; background: #f8fafa; font-size: 12px; }
+.guide-checklist span::before { content: "✓"; position: absolute; left: 12px; color: var(--green); font-weight: 900; }
 .step { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; padding: 18px 0; border-top: 1px solid var(--line); }
 .step > div { min-width: 0; }
 .step > b { display: grid; place-items: center; width: 36px; height: 28px; border-radius: 4px; background: #dff1ef; color: var(--teal); font-size: 11px; }
@@ -215,7 +231,7 @@ dialog::backdrop { background: rgba(8, 24, 29, 0.66); }
   .main { padding: 18px 14px; }
   .topbar { align-items: stretch; flex-direction: column; }
   .top-actions { overflow-x: auto; }
-  .metrics-grid, .model-grid, .credential-grid, .plan-grid, .error-grid, .sdk-grid, .formula-box { grid-template-columns: 1fr; }
+  .metrics-grid, .model-grid, .credential-grid, .plan-grid, .error-grid, .sdk-grid, .formula-box, .guide-grid, .guide-grid.fields, .guide-checklist { grid-template-columns: 1fr; }
   .metric { min-height: 120px; }
   .form-grid, .form-grid.three { grid-template-columns: 1fr; }
   .config-list div { grid-template-columns: 1fr; }

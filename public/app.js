@@ -5,11 +5,11 @@ const state = {
 
 const customerNav = [
   ['overview', '总览', '⌂'], ['models', '可用模型', '◇'], ['keys', 'API Key', '⌁'],
-  ['docs', '接入说明', '⌘'], ['usage', '计量日志', '▥'], ['billing', '充值与账本', '◈'],
+  ['docs', '使用说明', '⌘'], ['usage', '计量日志', '▥'], ['billing', '充值与账本', '◈'],
 ];
 const adminNav = [
   ['overview', '运营总览', '⌂'], ['tenants', '客户管理', '◎'], ['routes', '模型配置', '◇'], ['keys', 'API Key', '⌁'],
-  ['pricing', '计费说明', '％'], ['orders', '充值审核', '◈'],
+  ['pricing', '计费说明', '％'], ['orders', '充值审核', '◈'], ['docs', '使用说明', '⌘'],
 ];
 
 const $ = (selector) => document.querySelector(selector);
@@ -104,7 +104,7 @@ const customerViews = {
     const data = state.customer;
     const success = data.usage.filter((item) => item.status === 'success');
     const used = success.reduce((sum, item) => sum + Number(item.charged_cost_micros), 0);
-    setPageMeta('DASHBOARD', '总览', '<button class="button secondary" data-view="docs">查看接入说明</button>');
+    setPageMeta('DASHBOARD', '总览', '<button class="button secondary" data-view="docs">查看使用说明</button>');
     $('#pageContent').innerHTML = `
       <div class="metrics-grid">
         ${metric('账户余额', formatPower(data.tenant.balance_micros, 4), '1 电力 = 1 美元结算额度', Number(data.tenant.balance_micros) > 0 ? 'green' : 'amber')}
@@ -139,7 +139,7 @@ const customerViews = {
     setPageMeta('PRICING NOTICES', '价格通知');
     $('#pageContent').innerHTML = `<section class="panel"><div class="panel-head"><div><h2>价格通知</h2><p>每次发布新价格都会保留一条通知，离线期间也不会丢失。</p></div></div><div class="notice-list">${rows.map((n) => `<article class="notice-item ${n.is_read ? '' : 'unread'}"><div><span class="tag ${n.is_read ? 'muted' : 'success'}">${n.is_read ? '已读' : '新通知'}</span><h3>${escapeHtml(n.title)}</h3><p>${escapeHtml(n.body)}</p><small>V${n.pricing_version || '-'} · ${formatDate(n.created_at)}</small></div>${n.is_read ? '' : `<button class="button secondary small" data-action="read-notice" data-id="${n.id}">标记已读</button>`}</article>`).join('') || emptyState('暂无通知', '价格更新后会显示在这里')}</div></section>`;
   },
-  docs() {
+  legacyDocs() {
     const base = `${state.customer.publicBaseUrl}/v1`;
     setPageMeta('DOCUMENTATION', '接入说明');
     $('#pageContent').innerHTML = `<section class="panel docs"><div class="panel-head"><div><h2>按模型协议接入</h2><p>每枚 Key 绑定一个模型和协议；OpenAI 与 Anthropic 保持各自原生格式，不做跨协议转换。</p></div></div>
@@ -158,6 +158,30 @@ const client = new OpenAI({
 });</pre></article>
         <article><h3>Anthropic 兼容接口</h3><pre>curl ${escapeHtml(base)}/messages \\\n  -H "x-api-key: sk-your-key" \\\n  -H "anthropic-version: 2023-06-01" \\\n  -H "Content-Type: application/json"</pre></article>
       </div>
+    </section>`;
+  },
+  docs() {
+    const base = `${state.customer.publicBaseUrl}/v1`;
+    setPageMeta('USER GUIDE', '使用说明');
+    $('#pageContent').innerHTML = `<section class="panel docs"><div class="panel-head"><div><h2>第一次使用，从这里开始</h2><p>你只需要准备三个东西：接口地址（Base URL）、API Key、模型 ID。三项都可以在本控制台找到。</p></div></div>
+      <div class="guide-callout"><strong>最重要的规则</strong><span>每枚 Key 已绑定一个模型和一种协议。OpenAI 模型走 OpenAI 接口，Anthropic 模型走 Anthropic 接口，二者请求格式不能混用。</span></div>
+      <div class="step"><b>01</b><div><h3>确认可用模型和协议</h3><p>打开左侧“可用模型”，找到要使用的模型。复制模型卡片中的模型 ID，并记住它标注的是 <strong>OpenAI 协议</strong>还是 <strong>Anthropic 协议</strong>。模型 ID 必须原样填写，不能自己改名。</p></div></div>
+      <div class="step"><b>02</b><div><h3>生成或复制 API Key</h3><p>打开“API Key”，点击“生成 Key”，依次填写名称、模式并选择模型。生成后会自动复制；以后也可以点击列表中的“复制”。页面只显示遮盖后的 Key，这是正常的。</p><p class="panel-note">Key 相当于密码，请放进服务器环境变量，不要写进公开代码、截图、群聊或 Git 仓库。怀疑泄露时请立即停用并重新生成。</p></div></div>
+      <div class="step"><b>03</b><div><h3>填写统一接口地址</h3><div class="config-list"><div><span>Base URL</span><code>${escapeHtml(base)}</code></div><div><span>API Key</span><code>sk-live-...</code></div><div><span>Model</span><code>从“可用模型”复制的模型 ID</code></div></div><p class="panel-note">大多数第三方软件只需要填写这三项。原来已经支持 OpenAI/Anthropic 自定义地址的软件，一般不需要改业务代码。</p></div></div>
+      <div class="step"><b>04</b><div><h3>OpenAI 协议示例</h3><p>OpenAI 模型使用 <code>/chat/completions</code> 或 <code>/responses</code>。下面命令中的 Key 和模型 ID 需要替换成你自己的。</p><pre>curl ${escapeHtml(base)}/chat/completions \\
+  -H "Authorization: Bearer sk-your-key" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"your-model-id","messages":[{"role":"user","content":"你好"}]}'</pre></div></div>
+      <div class="step"><b>05</b><div><h3>Anthropic 协议示例</h3><p>Anthropic/Claude 模型使用 <code>/messages</code>，并带上 <code>anthropic-version</code> 请求头。</p><pre>curl ${escapeHtml(base)}/messages \\
+  -H "x-api-key: sk-your-key" \\
+  -H "anthropic-version: 2023-06-01" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"your-model-id","max_tokens":1024,"messages":[{"role":"user","content":"你好"}]}'</pre></div></div>
+      <div class="step"><b>06</b><div><h3>查看价格、余额和使用记录</h3><p>“可用模型”显示成交价、官方参考价和价格版本；“计量日志”显示每次请求的 Token、官方参考消耗、综合倍率和实扣电力；“充值与账本”显示余额变化并可按日期导出 CSV。</p><pre>GET ${escapeHtml(base)}/pricing
+GET ${escapeHtml(base)}/notices</pre><p class="panel-note">价格有更新时，左下角铃铛会出现红点。成功响应还会带当前价格版本和成交价等 <code>X-S-*</code> 响应头。</p></div></div>
+      <div class="step"><b>07</b><div><h3>停用本中转站时怎么切换</h3><p>在你的项目中把 Base URL、API Key 和模型 ID 换成新供应商提供的值即可；确认新接口工作后，再回来停用旧 Key。中转站不要求你修改其他业务逻辑。</p></div></div>
+      <h3>常见报错</h3><div class="error-grid"><div><strong>400</strong><span>协议或接口用错，按模型标注改用正确端点</span></div><div><strong>401</strong><span>Key 缺失、复制错误、已停用或已过期</span></div><div><strong>402</strong><span>余额不足，请在充值与账本中提交申请</span></div><div><strong>404</strong><span>模型 ID 错误，或该 Key 没有绑定此模型</span></div><div><strong>502</strong><span>上游暂时不可用，稍后重试并保留请求 ID</span></div></div>
+      <h3 class="guide-title">几个容易混淆的词</h3><div class="guide-grid"><article><strong>电力</strong><p>账户余额单位，1 电力等于 1 美元结算额度。</p></article><article><strong>成交价</strong><p>实际扣费使用的输入、缓存输入和输出单价。</p></article><article><strong>官方参考价</strong><p>只用于对比展示，不直接决定本次实扣。</p></article><article><strong>综合倍率</strong><p>本次实际费用与官方参考费用的比值。</p></article></div>
     </section>`;
   },
   usage() {
@@ -211,6 +235,23 @@ const adminViews = {
       <section class="panel span-2"><div class="panel-head"><div><h2>结算公式</h2><p>成交价直接参与计费，倍率只由成交价与官方参考价推导展示。</p></div></div><div class="formula-box"><div><span>客户实扣</span><strong>输入 Token × 客户输入价 + 输出 Token × 客户输出价</strong></div><div><span>展示倍率</span><strong>客户价 ÷ 官方参考价</strong></div><div><span>价格发布</span><strong>版本 +1 并生成通知</strong></div></div></section>
       <section class="panel"><div class="panel-head"><div><h2>商业边界</h2><p>供应商成本不会进入客户 API 和页面。</p></div></div><div class="security-list"><span>客户看到成交价和官方参考价</span><span>供应商采购价仅管理员可见</span><span>每笔日志固化调用时的价格版本</span></div></section>
     </div>`;
+  },
+  docs() {
+    const base = `${state.me.publicBaseUrl}/v1`;
+    setPageMeta('ADMIN GUIDE', '管理员使用说明');
+    $('#pageContent').innerHTML = `<section class="panel docs"><div class="panel-head"><div><h2>从零开通一个 API 服务</h2><p>推荐严格按照下面的顺序操作：创建客户 → 录入供应商 Key → 添加模型 → 生成对外 Key → 充值。后一步会使用前一步创建的数据。</p></div></div>
+      <div class="guide-callout warning"><strong>上线前先检查</strong><span>服务器 <code>PUBLIC_BASE_URL</code> 必须是正式域名，例如 <code>https://api.example.com</code>；供应商 Key、管理员密码和加密密钥不要发给任何客户。</span></div>
+      <div class="step"><b>01</b><div><h3>创建客户账户</h3><p>进入“客户管理”，点击“新增客户”。客户名称用于后台识别；登录邮箱和初始密码用于客户登录使用控制台。建议每个公司或独立项目建立一个账户，余额、模型、Key 和日志会按账户隔离。</p><p class="panel-note">初始密码至少 8 位。创建后请通过安全渠道交付，并提醒对方不要多人共用登录密码。</p></div></div>
+      <div class="step"><b>02</b><div><h3>录入供应商 Key</h3><p>进入“模型配置”，先点击右上角“录入供应商 Key”。这一步保存的是你从上游供应商购买的 API，不是交付给客户使用的 Key。</p><div class="guide-grid fields"><article><strong>所属客户</strong><p>选择这条供应商线路归属哪个账户。模型和余额都将绑定到该账户。</p></article><article><strong>凭证名称</strong><p>只在管理员后台显示，例如“YYLX 主线路”“官方 Claude 备用线路”。</p></article><article><strong>协议</strong><p>上游采用 OpenAI 格式就选 OpenAI；采用 Claude/Anthropic Messages 格式就选 Anthropic。</p></article><article><strong>Base URL</strong><p>填写供应商文档给出的 API 根地址，通常以 <code>/v1</code> 结尾，不要填写具体的模型请求路径。</p></article><article><strong>供应商 API Key</strong><p>粘贴上游真实 Key。系统加密保存，保存后不会在页面显示明文。</p></article><article><strong>分组/线路</strong><p>可选备注，用于区分供应商套餐、线路或账号分组，不参与请求。</p></article></div><div class="guide-callout"><strong>协议怎么判断？</strong><span>供应商示例使用 <code>Authorization: Bearer</code>、<code>/chat/completions</code> 或 <code>/responses</code>，通常选 OpenAI；使用 <code>x-api-key</code>、<code>anthropic-version</code> 和 <code>/messages</code>，选 Anthropic。拿不准时以供应商文档为准。</span></div></div></div>
+      <div class="step"><b>03</b><div><h3>添加模型</h3><p>供应商凭证保存后，仍在“模型配置”点击“添加模型”。一个模型就是一项可独立定价、独立生成 Key 的 API 服务。</p><div class="guide-grid fields"><article><strong>所属客户</strong><p>必须与供应商凭证归属一致，否则系统不会允许保存。</p></article><article><strong>服务模式</strong><p>“托管部署”适合你交付和维护的项目；“开发者网关”适合客户自己写代码接入。</p></article><article><strong>供应商凭证</strong><p>选择刚录入的线路。协议会跟随该凭证，模型本身不再单独选择协议。</p></article><article><strong>对外模型 ID</strong><p>客户请求中填写的稳定名称，例如 <code>project-production</code>。后续更换上游时尽量不要改它。</p></article><article><strong>供应商模型 ID</strong><p>供应商文档里的真实模型名，必须完全一致，例如具体的 Claude、GPT 型号。</p></article><article><strong>展示名称</strong><p>控制台里便于人阅读的名称，可写“官网客服生产模型”。</p></article><article><strong>价格标签</strong><p>例如“优惠期”“正式价格”“备用线路价格”，会随日志和通知展示。</p></article></div>
+        <h3>三组价格怎么填</h3><div class="guide-grid"><article><strong>客户成交价</strong><p>实际扣除电力的价格。输入、缓存输入、输出分别按每 100 万 Token 填写。</p></article><article><strong>官方参考价</strong><p>仅供客户对比和计算展示倍率，通常填写模型官方公开价格。</p></article><article><strong>供应商采购成本</strong><p>你向上游实际支付的成本，仅管理员可见，用于判断利润，不参与客户扣费。</p></article><article><strong>缓存输入价</strong><p>供应商有独立缓存价格就照填；没有时可留空，系统会使用普通输入价。</p></article></div><div class="guide-callout"><strong>示例</strong><span>官方输入价 1 电力、你给客户的输入价 0.8 电力，展示倍率就是 0.8；如果备用线路成交价改成 1.2 电力，倍率会显示 1.2。充值余额本身不乘倍率。</span></div>
+      </div></div>
+      <div class="step"><b>04</b><div><h3>生成交付用 API Key</h3><p>进入管理员“API Key”页面，点击“生成 Key”，填写便于识别的名称并选择服务。系统会自动带出所属账户、模式、模型和协议，并将完整 Key 复制到剪贴板。</p><p>页面以后仍可点击“复制”，但始终只显示遮盖后的内容。建议每个项目、环境或设备单独生成一枚 Key，例如“官网生产”“测试环境”，不要多人共用一枚 Key。</p><div class="config-list"><div><span>交付 Base URL</span><code>${escapeHtml(base)}</code></div><div><span>交付 API Key</span><code>管理员页面复制的 sk-live-...</code></div><div><span>交付 Model</span><code>添加模型时填写的对外模型 ID</code></div></div></div></div>
+      <div class="step"><b>05</b><div><h3>充值和确认到账</h3><p>客户在“充值与账本”提交电力数量后，订单会出现在“充值审核”。确认收到款项后，填写实际到账电力；实收人民币可选，只用于对账。确认后余额立即增加，而且同一订单只能确认一次。</p><p class="panel-note">1 电力 = 1 美元结算额度。实际收多少人民币、兑换多少电力由你在确认订单时决定，不要提前把折扣固化在充值余额中。</p></div></div>
+      <div class="step"><b>06</b><div><h3>修改价格和发送通知</h3><p>在“模型配置”找到服务，点击“发布价格”。填写新成交价、官方参考价、采购成本和通知说明后发布。价格版本会自动加 1，新请求立即使用新价格，历史日志保留旧价格快照。</p><p>客户控制台左下角铃铛会出现红点；接入程序也可通过 <code>GET /v1/notices</code> 读取通知。只有发布价格时生成一次通知，不会随每个请求重复推送。</p></div></div>
+      <div class="step"><b>07</b><div><h3>日常维护和故障切换</h3><p>上游模型或线路变化时，在管理员后台调整模型/线路；对外模型 ID 保持不变，客户项目通常无需修改。Key 泄露时只停用对应 Key 并重新生成，不影响同账户其他项目。</p><p>OpenAI 与 Anthropic 目前是<strong>原生协议透传</strong>，不做互相翻译。Anthropic 模型必须请求 <code>/v1/messages</code>；OpenAI 模型使用 <code>/v1/chat/completions</code> 或 <code>/v1/responses</code>。协议选错会返回 <code>protocol_mismatch</code>。</p></div></div>
+      <h3>上线自查清单</h3><div class="guide-checklist"><span>正式域名和 HTTPS 可访问</span><span><code>PUBLIC_BASE_URL</code> 已改成正式域名</span><span>供应商 Base URL 与协议匹配</span><span>对外模型 ID 已用真实请求测试</span><span>成交价、官方参考价、采购成本没有填反</span><span>账户已有足够电力</span><span>交付的是中转站 Key，不是供应商 Key</span><span>数据库和服务器 <code>.env</code> 已备份</span></div>
+    </section>`;
   },
   orders() {
     setPageMeta('RECHARGE REVIEW', '充值审核');
