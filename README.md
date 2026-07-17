@@ -44,7 +44,11 @@
 ```text
 GET /v1/pricing
 GET /v1/notices
+GET /v1/account
+GET /v1/usage?page=1&page_size=10
 ```
+
+`/v1/account` 返回当前余额、可用电力、预留电力及本月/累计用量汇总；`/v1/usage` 返回当前租户的分页计量日志，`page_size` 支持 `5` 或 `10`。这两个接口均为只读，并与模型接口使用同一枚客户 API Key 鉴权。
 
 模型响应包含 `X-S-Pricing-Version`、客户输入/缓存/输出价、官方参考价和 `X-S-Input-Factor` / `X-S-Output-Factor` 等响应头。非流式成功响应另包含 `X-S-Billed-Power`。
 

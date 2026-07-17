@@ -179,6 +179,83 @@ function endpointUrl(baseUrl, path) {
   return `${base}${path}`;
 }
 
+function apiPage(value) {
+  const page = Number.parseInt(String(value || '1'), 10);
+  return Number.isFinite(page) && page > 0 ? page : 1;
+}
+
+function apiPageSize(value) {
+  const pageSize = Number.parseInt(String(value || '10'), 10);
+  return [5, 10].includes(pageSize) ? pageSize : 10;
+}
+
+proxyRouter.get('/account', requireCustomerApiKey, async (req, res, next) => {
+  try {
+    const tenantId = req.apiPrincipal.tenant_id;
+    const [tenant, monthUsage, totalUsage] = await Promise.all([
+      pool.query('SELECT name, balance_micros, reserved_micros, active FROM tenants WHERE id = $1', [tenantId]),
+      pool.query(`SELECT COALESCE(sum(charged_cost_micros), 0) AS charged_micros,
+          COALESCE(sum(input_tokens), 0) AS input_tokens,
+          COALESCE(sum(output_tokens), 0) AS output_tokens,
+          count(*) AS requests
+        FROM usage_logs
+        WHERE tenant_id = $1 AND status = 'success'
+          AND created_at >= datetime('now', 'start of month')`, [tenantId]),
+      pool.query(`SELECT COALESCE(sum(charged_cost_micros), 0) AS charged_micros,
+          COALESCE(sum(input_tokens), 0) AS input_tokens,
+          COALESCE(sum(output_tokens), 0) AS output_tokens,
+          count(*) AS requests
+        FROM usage_logs WHERE tenant_id = $1 AND status = 'success'`, [tenantId]),
+    ]);
+    const account = tenant.rows[0];
+    const toPower = (micros) => Number(micros || 0) / 1_000_000;
+    const usageSummary = (row) => ({
+      chargedPower: toPower(row?.charged_micros),
+      inputTokens: Number(row?.input_tokens || 0),
+      outputTokens: Number(row?.output_tokens || 0),
+      requests: Number(row?.requests || 0),
+    });
+    res.json({
+      object: 'account.overview',
+      unit: 'power',
+      tenant: account?.name || '',
+      active: Boolean(account?.active),
+      balance: toPower(account?.balance_micros),
+      reserved: toPower(account?.reserved_micros),
+      available: toPower(Math.max(0, Number(account?.balance_micros || 0) - Number(account?.reserved_micros || 0))),
+      usage: { month: usageSummary(monthUsage.rows[0]), total: usageSummary(totalUsage.rows[0]) },
+    });
+  } catch (error) { next(error); }
+});
+
+proxyRouter.get('/usage', requireCustomerApiKey, async (req, res, next) => {
+  try {
+    const page = apiPage(req.query.page);
+    const pageSize = apiPageSize(req.query.page_size);
+    const offset = (page - 1) * pageSize;
+    const tenantId = req.apiPrincipal.tenant_id;
+    const [items, count] = await Promise.all([
+      pool.query(`SELECT model_id, input_tokens, output_tokens, cached_input_tokens,
+          official_cost_micros, charged_cost_micros, effective_billing_factor,
+          pricing_version_snapshot, pricing_label_snapshot, service_mode,
+          status, error_code, request_id, created_at
+        FROM usage_logs WHERE tenant_id = $1
+        ORDER BY created_at DESC LIMIT $2 OFFSET $3`, [tenantId, pageSize, offset]),
+      pool.query('SELECT count(*) AS total FROM usage_logs WHERE tenant_id = $1', [tenantId]),
+    ]);
+    res.json({
+      object: 'usage.list',
+      unit: 'power',
+      data: items.rows.map((item) => ({
+        ...item,
+        official_power: Number(item.official_cost_micros || 0) / 1_000_000,
+        charged_power: Number(item.charged_cost_micros || 0) / 1_000_000,
+      })),
+      pagination: { page, pageSize, total: Number(count.rows[0]?.total || 0) },
+    });
+  } catch (error) { next(error); }
+});
+
 proxyRouter.get('/models', requireCustomerApiKey, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
