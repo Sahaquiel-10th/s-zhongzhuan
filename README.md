@@ -11,7 +11,7 @@
 
 每个供应商凭证需要选择 `OpenAI` 或 `Anthropic` 协议。网关透传各自的原生协议，不做跨协议翻译：OpenAI 使用 `/v1/chat/completions` 或 `/v1/responses`，Anthropic 使用 `/v1/messages`。选错端点会直接返回 `protocol_mismatch`，避免把不兼容请求发到上游。
 
-绑定到单一 Anthropic 模型的 API Key 兼容 Claude Code 的 `fable`、`fable[1m]`、`sonnet`、`opus`、`opusplan`、`haiku` 和 `default` 等内置模型别名。别名只会路由到该 Key 已绑定的模型，并在转发前改写为供应商模型 ID，不会扩大 Key 的模型权限。
+绑定到单一 Anthropic 模型的 API Key 兼容 Claude Code 的 `fable`、`fable[1m]`、`sonnet`、`opus`、`opusplan`、`haiku` 和 `default` 等内置模型别名，以及 CC Switch 可能发送的 `显示名 · 请求模型` 组合格式。组合格式的两段都必须是该 Key 已绑定模型或受支持别名。请求在转发前会改写为供应商模型 ID，不会扩大 Key 的模型权限。
 
 ## 电力计费
 
@@ -48,7 +48,9 @@ GET /v1/account
 GET /v1/usage?page=1&page_size=10
 ```
 
-`/v1/account` 返回当前余额、可用电力、预留电力及本月/累计用量汇总；`/v1/usage` 返回当前租户的分页计量日志，`page_size` 支持 `5` 或 `10`。这两个接口均为只读，并与模型接口使用同一枚客户 API Key 鉴权。
+`/v1/pricing` 只返回价格，`/v1/notices` 只返回通知。`/v1/account` 返回当前余额、可用电力、预留电力及本月/累计用量汇总；`/v1/usage` 返回当前租户的分页计量日志，`page_size` 支持 `5` 或 `10`。这四个接口均为只读，可使用 `Authorization: Bearer sk-...` 或 `x-api-key: sk-...` 鉴权；查询被限定在 API Key 所属租户内。网页后台也可查看价格、余额和使用记录。
+
+`/v1/usage` 的每条记录包含 `time`、`model`、`inputTokens`、`cachedInputTokens`、`outputTokens`、`officialReferencePower`、`comparisonFactor`、`chargedPower`、`status`、`requestId` 等字段，不返回供应商成本或上游 Key。
 
 模型响应包含 `X-S-Pricing-Version`、客户输入/缓存/输出价、官方参考价和 `X-S-Input-Factor` / `X-S-Output-Factor` 等响应头。非流式成功响应另包含 `X-S-Billed-Power`。
 

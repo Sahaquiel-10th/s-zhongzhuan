@@ -247,11 +247,27 @@ proxyRouter.get('/usage', requireCustomerApiKey, async (req, res, next) => {
       object: 'usage.list',
       unit: 'power',
       data: items.rows.map((item) => ({
-        ...item,
-        official_power: Number(item.official_cost_micros || 0) / 1_000_000,
-        charged_power: Number(item.charged_cost_micros || 0) / 1_000_000,
+        time: item.created_at,
+        model: item.model_id,
+        inputTokens: Number(item.input_tokens || 0),
+        cachedInputTokens: Number(item.cached_input_tokens || 0),
+        outputTokens: Number(item.output_tokens || 0),
+        officialReferencePower: Number(item.official_cost_micros || 0) / 1_000_000,
+        comparisonFactor: item.effective_billing_factor === null ? null : Number(item.effective_billing_factor),
+        chargedPower: Number(item.charged_cost_micros || 0) / 1_000_000,
+        status: item.status,
+        requestId: item.request_id,
+        errorCode: item.error_code,
+        serviceMode: item.service_mode,
+        pricingVersion: item.pricing_version_snapshot === null ? null : Number(item.pricing_version_snapshot),
+        pricingLabel: item.pricing_label_snapshot,
       })),
-      pagination: { page, pageSize, total: Number(count.rows[0]?.total || 0) },
+      pagination: {
+        page,
+        pageSize,
+        total: Number(count.rows[0]?.total || 0),
+        totalPages: Math.ceil(Number(count.rows[0]?.total || 0) / pageSize),
+      },
     });
   } catch (error) { next(error); }
 });

@@ -147,8 +147,10 @@ const customerViews = {
       <div class="step"><b>01</b><div><h3>设置 Base URL</h3><code>${escapeHtml(base)}</code></div></div>
       <div class="step"><b>02</b><div><h3>查询模型</h3><pre>curl ${escapeHtml(base)}/models \\\n  -H "Authorization: Bearer sk-your-key"</pre></div></div>
       <div class="step"><b>03</b><div><h3>发送请求</h3><pre>curl ${escapeHtml(base)}/chat/completions \\\n  -H "Authorization: Bearer sk-your-key" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"your-model-id","messages":[{"role":"user","content":"你好"}]}'</pre></div></div>
-      <div class="step"><b>04</b><div><h3>读取价格与通知</h3><pre>GET ${escapeHtml(base)}/pricing
-GET ${escapeHtml(base)}/notices</pre><p class="panel-note">请求使用同一枚 Bearer Key。每次模型响应都会带 <code>X-S-Pricing-Version</code> 及当前成交价、官方参考价响应头。</p></div></div>
+      <div class="step"><b>04</b><div><h3>读取价格、通知、余额与用量</h3><pre>GET ${escapeHtml(base)}/pricing   # 只返回价格
+GET ${escapeHtml(base)}/notices  # 只返回通知
+GET ${escapeHtml(base)}/account  # 余额与用量汇总
+GET ${escapeHtml(base)}/usage?page=1&amp;page_size=10  # 计量日志</pre><p class="panel-note">四个接口都是只读接口，使用同一枚 <code>Authorization: Bearer</code> 或 <code>x-api-key</code> 鉴权。网页后台也可以直接查看价格、余额和使用记录。</p></div></div>
       <div class="error-grid"><div><strong>401</strong><span>Key 无效或已停用</span></div><div><strong>402</strong><span>账户余额不足</span></div><div><strong>404</strong><span>模型未开通</span></div><div><strong>502</strong><span>模型服务暂不可用</span></div></div>
       <div class="sdk-grid">
         <article><h3>Node.js SDK</h3><pre>import OpenAI from "openai";
@@ -178,8 +180,10 @@ const client = new OpenAI({
   -H "anthropic-version: 2023-06-01" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"your-model-id","max_tokens":1024,"messages":[{"role":"user","content":"你好"}]}'</pre></div></div>
-      <div class="step"><b>06</b><div><h3>查看价格、余额和使用记录</h3><p>“可用模型”显示成交价、官方参考价和价格版本；“计量日志”显示每次请求的 Token、官方参考消耗、综合倍率和实扣电力；“充值与账本”显示余额变化并可按日期导出 CSV。</p><pre>GET ${escapeHtml(base)}/pricing
-GET ${escapeHtml(base)}/notices</pre><p class="panel-note">价格有更新时，左下角铃铛会出现红点。成功响应还会带当前价格版本和成交价等 <code>X-S-*</code> 响应头。</p></div></div>
+      <div class="step"><b>06</b><div><h3>查看价格、余额和使用记录</h3><p>网页后台可直接查看：“可用模型”显示价格，“总览”显示余额，“计量日志”显示每次请求，“充值与账本”显示余额变化。项目服务端也可使用同一枚 API Key 调用下面的只读接口。</p><pre>GET ${escapeHtml(base)}/pricing   # 只返回价格
+GET ${escapeHtml(base)}/notices  # 只返回通知
+GET ${escapeHtml(base)}/account  # 余额、预留、可用电力及本月/累计汇总
+GET ${escapeHtml(base)}/usage?page=1&amp;page_size=10</pre><p class="panel-note"><code>/usage</code> 每页支持 5 或 10 条。鉴权可使用 <code>Authorization: Bearer sk-...</code> 或 <code>x-api-key: sk-...</code>。这些接口不能充值、改价或修改账户。价格更新时左下角铃铛会出现红点。</p></div></div>
       <div class="step"><b>07</b><div><h3>密码和账号安全</h3><p>左侧“账号安全”可以验证当前密码后设置新密码。怀疑密码泄露时应立即修改；忘记密码则联系管理员重置临时密码。</p></div></div><div class="step"><b>08</b><div><h3>停用本中转站时怎么切换</h3><p>在你的项目中把 Base URL、API Key 和模型 ID 换成新供应商提供的值即可；确认新接口工作后，再回来停用旧 Key。中转站不要求你修改其他业务逻辑。</p></div></div>
       <h3>常见报错</h3><div class="error-grid"><div><strong>400</strong><span>协议或接口用错，按模型标注改用正确端点</span></div><div><strong>401</strong><span>Key 缺失、复制错误、已停用或已过期</span></div><div><strong>402</strong><span>余额不足，请在充值与账本中提交申请</span></div><div><strong>404</strong><span>模型 ID 错误，或该 Key 没有绑定此模型</span></div><div><strong>502</strong><span>上游暂时不可用，稍后重试并保留请求 ID</span></div></div>
       <h3 class="guide-title">几个容易混淆的词</h3><div class="guide-grid"><article><strong>电力</strong><p>账户余额和调用结算使用的统一单位。</p></article><article><strong>成交价</strong><p>实际扣费使用的输入、缓存输入和输出单价。</p></article><article><strong>官方参考价</strong><p>只用于对比展示，不直接决定本次实扣。</p></article><article><strong>综合倍率</strong><p>本次实际费用与官方参考费用的比值。</p></article></div>
