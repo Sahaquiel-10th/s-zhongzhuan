@@ -11,6 +11,8 @@
 
 每个供应商凭证需要选择 `OpenAI` 或 `Anthropic` 协议。网关透传各自的原生协议，不做跨协议翻译：OpenAI 使用 `/v1/chat/completions` 或 `/v1/responses`，Anthropic 使用 `/v1/messages`。选错端点会直接返回 `protocol_mismatch`，避免把不兼容请求发到上游。
 
+绑定到单一 Anthropic 模型的 API Key 兼容 Claude Code 的 `fable`、`fable[1m]`、`sonnet`、`opus`、`opusplan`、`haiku` 和 `default` 等内置模型别名。别名只会路由到该 Key 已绑定的模型，并在转发前改写为供应商模型 ID，不会扩大 Key 的模型权限。
+
 ## 电力计费
 
 数据库使用微电力作为最小单位：`1 电力 = 1,000,000 微电力`。每个 API 服务独立保存：

@@ -5,19 +5,33 @@ import { decryptSecret } from './crypto.js';
 import { calculateBilling, normalizeUsage, pricingDisplay, reservationCost } from './billing.js';
 import { requireCustomerApiKey } from './auth.js';
 import { maskResponseModel, rewriteSseLine } from './sanitize.js';
+import { acceptsBoundModelRequest } from './model-routing.js';
 
 export const proxyRouter = express.Router();
 
 async function findRoute(principal, publicModelId) {
+  if (principal.allowed_route_id) {
+    const { rows } = await pool.query(
+      `SELECT r.*, c.base_url, c.api_key_encrypted, c.protocol
+         FROM model_routes r
+         JOIN upstream_credentials c ON c.id = r.credential_id
+        WHERE r.tenant_id = $1 AND r.id = $2 AND r.active = true AND c.active = true
+          AND (($3 = 'self_service' AND r.service_mode = 'self_service')
+            OR ($3 = 'managed' AND r.service_mode = 'managed'))`,
+      [principal.tenant_id, principal.allowed_route_id, principal.access_mode],
+    );
+    const boundRoute = rows[0];
+    return boundRoute && acceptsBoundModelRequest(boundRoute, publicModelId) ? boundRoute : undefined;
+  }
+
   const { rows } = await pool.query(
     `SELECT r.*, c.base_url, c.api_key_encrypted, c.protocol
        FROM model_routes r
        JOIN upstream_credentials c ON c.id = r.credential_id
       WHERE r.tenant_id = $1 AND r.public_model_id = $2 AND r.active = true AND c.active = true
         AND (($3 = 'self_service' AND r.service_mode = 'self_service')
-          OR ($3 = 'managed' AND r.service_mode = 'managed'))
-        AND ($4 IS NULL OR r.id = $4)`,
-    [principal.tenant_id, publicModelId, principal.access_mode, principal.allowed_route_id],
+          OR ($3 = 'managed' AND r.service_mode = 'managed'))`,
+    [principal.tenant_id, publicModelId, principal.access_mode],
   );
   return rows[0];
 }
