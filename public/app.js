@@ -10,7 +10,7 @@ const customerNav = [
 ];
 const adminNav = [
   ['overview', '运营总览', '⌂'], ['tenants', '客户管理', '◎'], ['routes', '模型配置', '◇'], ['keys', 'API Key', '⌁'],
-  ['pricing', '计费说明', '％'], ['orders', '充值审核', '◈'], ['docs', '使用说明', '⌘'],
+  ['ledger', '资金账本', '▤'], ['pricing', '计费说明', '％'], ['orders', '充值审核', '◈'], ['docs', '使用说明', '⌘'],
 ];
 
 const $ = (selector) => document.querySelector(selector);
@@ -133,7 +133,7 @@ const customerViews = {
     setPageMeta('CREDENTIALS', 'API Key', '<button class="button primary" data-action="new-key">生成 Key</button>');
     const rows = state.customer.keys;
     $('#pageContent').innerHTML = `<section class="panel"><div class="panel-head"><div><h2>访问密钥</h2><p>页面始终遮盖完整 Key；需要时可直接复制到剪贴板。</p></div></div>
-      <div class="table-wrap"><table><thead><tr><th>名称</th><th>Key</th><th>模式 / 模型</th><th>协议</th><th>状态</th><th>最近使用</th><th></th></tr></thead><tbody>${rows.map((k) => `<tr><td><strong>${escapeHtml(k.name)}</strong></td><td><code>${escapeHtml(k.key_prefix)}</code></td><td>${k.access_mode === 'managed' ? '托管部署' : '开发者网关'}<span class="cell-note">${escapeHtml(k.route_name || '模型已失效')} · ${escapeHtml(k.public_model_id || '-')}</span></td><td>${protocolLabel(k.protocol)}</td><td>${statusTag(k.active)}</td><td>${formatDate(k.last_used_at)}</td><td>${k.can_copy ? `<button class="button text" data-action="copy-key" data-id="${k.id}">复制</button>` : '<span class="cell-note">旧 Key 不可恢复</span>'}<button class="button text" data-action="toggle-key" data-id="${k.id}" data-active="${!k.active}">${k.active ? '停用' : '启用'}</button></td></tr>`).join('')}</tbody></table>${rows.length ? '' : emptyState('还没有 API Key', '生成一个 Key 后即可开始调用')}</div></section>`;
+      <div class="table-wrap"><table><thead><tr><th>名称</th><th>Key</th><th>模式 / 模型</th><th>协议</th><th>状态</th><th>最近使用</th><th></th></tr></thead><tbody>${rows.map((k) => `<tr><td><strong>${escapeHtml(k.name)}</strong></td><td><code>${escapeHtml(k.key_prefix)}</code></td><td>${k.access_mode === 'managed' ? '托管部署' : '开发者网关'}<span class="cell-note">${escapeHtml(k.route_name || '模型已失效')} · ${escapeHtml(k.public_model_id || '-')}</span></td><td>${protocolLabel(k.protocol)}</td><td>${statusTag(k.active)}</td><td>${formatDate(k.last_used_at)}</td><td>${k.can_copy ? `<button class="button text" data-action="copy-key" data-id="${k.id}">复制</button>` : '<span class="cell-note">旧 Key 不可恢复</span>'}<button class="button text" data-action="toggle-key" data-id="${k.id}" data-active="${!k.active}">${k.active ? '停用' : '启用'}</button><button class="button text" data-action="delete-key" data-id="${k.id}" data-active="${Boolean(k.active)}">删除</button></td></tr>`).join('')}</tbody></table>${rows.length ? '' : emptyState('还没有 API Key', '生成一个 Key 后即可开始调用')}</div></section>`;
   },
   notices() {
     const rows = state.customer.notices;
@@ -215,7 +215,7 @@ const adminViews = {
   tenants() {
     setPageMeta('TENANTS', '客户管理', '<button class="button primary" data-action="new-tenant">新增客户</button>');
     const rows = state.admin.tenants;
-    $('#pageContent').innerHTML = `<section class="panel"><div class="panel-head"><div><h2>客户账户</h2><p>每个客户拥有独立登录、电力余额、Key、服务和计量记录。</p></div></div><div class="table-wrap"><table><thead><tr><th>客户</th><th>登录账号</th><th>电力余额</th><th>已开服务</th><th>状态</th><th>创建时间</th><th></th></tr></thead><tbody>${rows.map((t) => `<tr><td><strong>${escapeHtml(t.name)}</strong></td><td>${escapeHtml(t.owner_account || '-')}</td><td>${formatPower(t.balance_micros, 4)}</td><td>${t.model_count}</td><td>${statusTag(t.active)}</td><td>${formatDate(t.created_at)}</td><td>${t.owner_user_id ? `<button class="button text" data-action="reset-customer-password" data-user-id="${t.owner_user_id}" data-account="${escapeHtml(t.owner_account)}">重置密码</button>` : ''}</td></tr>`).join('')}</tbody></table>${rows.length ? '' : emptyState('还没有客户', '先创建第一个客户账户')}</div></section>`;
+    $('#pageContent').innerHTML = `<section class="panel"><div class="panel-head"><div><h2>客户账户</h2><p>每个客户拥有独立登录、电力余额、Key、服务和计量记录。</p></div></div><div class="table-wrap"><table><thead><tr><th>客户</th><th>登录账号</th><th>电力余额</th><th>已开服务</th><th>状态</th><th>创建时间</th><th></th></tr></thead><tbody>${rows.map((t) => `<tr><td><strong>${escapeHtml(t.name)}</strong></td><td>${escapeHtml(t.owner_account || '-')}</td><td>${formatPower(t.balance_micros, 4)}</td><td>${t.model_count}</td><td>${statusTag(t.active)}</td><td>${formatDate(t.created_at)}</td><td><button class="button text" data-action="gift-power" data-tenant-id="${t.id}" data-tenant-name="${escapeHtml(t.name)}">赠送电力</button>${t.owner_user_id ? `<button class="button text" data-action="reset-customer-password" data-user-id="${t.owner_user_id}" data-account="${escapeHtml(t.owner_account)}">重置密码</button>` : ''}</td></tr>`).join('')}</tbody></table>${rows.length ? '' : emptyState('还没有客户', '先创建第一个客户账户')}</div></section>`;
   },
   routes() {
     const data = state.admin;
@@ -226,7 +226,12 @@ const adminViews = {
   keys() {
     const rows = state.admin.keys;
     setPageMeta('CREDENTIALS', 'API Key', '<button class="button primary" data-action="new-admin-key">生成 Key</button>');
-    $('#pageContent').innerHTML = `<section class="panel"><div class="panel-head"><div><h2>全部访问密钥</h2><p>管理员可直接为托管部署或开发者网关生成、复制和停用 Key，无需切换页面。</p></div></div><div class="table-wrap"><table><thead><tr><th>所属账户</th><th>名称 / Key</th><th>模式</th><th>模型 / 协议</th><th>状态</th><th>最近使用</th><th></th></tr></thead><tbody>${rows.map((k) => `<tr><td><strong>${escapeHtml(k.tenant_name)}</strong></td><td>${escapeHtml(k.name)}<code>${escapeHtml(k.key_prefix)}</code></td><td>${k.access_mode === 'managed' ? '托管部署' : '开发者网关'}</td><td>${escapeHtml(k.route_name || '模型已失效')}<span class="cell-note">${escapeHtml(k.public_model_id || '-')} · ${protocolLabel(k.protocol)}</span></td><td>${statusTag(k.active)}</td><td>${formatDate(k.last_used_at)}</td><td>${k.can_copy ? `<button class="button text" data-action="copy-admin-key" data-id="${k.id}">复制</button>` : '<span class="cell-note">旧 Key 不可恢复</span>'}<button class="button text" data-action="toggle-admin-key" data-id="${k.id}" data-active="${!k.active}">${k.active ? '停用' : '启用'}</button></td></tr>`).join('')}</tbody></table>${rows.length ? '' : emptyState('还没有 API Key', '从这里直接为任意已配置服务生成')}</div></section>`;
+    $('#pageContent').innerHTML = `<section class="panel"><div class="panel-head"><div><h2>全部访问密钥</h2><p>管理员可直接生成、复制、停用和删除 Key。正在启用的 Key 必须先停用。</p></div></div><div class="table-wrap"><table><thead><tr><th>所属账户</th><th>名称 / Key</th><th>模式</th><th>模型 / 协议</th><th>状态</th><th>最近使用</th><th></th></tr></thead><tbody>${rows.map((k) => `<tr><td><strong>${escapeHtml(k.tenant_name)}</strong></td><td>${escapeHtml(k.name)}<code>${escapeHtml(k.key_prefix)}</code></td><td>${k.access_mode === 'managed' ? '托管部署' : '开发者网关'}</td><td>${escapeHtml(k.route_name || '模型已失效')}<span class="cell-note">${escapeHtml(k.public_model_id || '-')} · ${protocolLabel(k.protocol)}</span></td><td>${statusTag(k.active)}</td><td>${formatDate(k.last_used_at)}</td><td>${k.can_copy ? `<button class="button text" data-action="copy-admin-key" data-id="${k.id}">复制</button>` : '<span class="cell-note">旧 Key 不可恢复</span>'}<button class="button text" data-action="toggle-admin-key" data-id="${k.id}" data-active="${!k.active}">${k.active ? '停用' : '启用'}</button><button class="button text" data-action="delete-admin-key" data-id="${k.id}" data-active="${Boolean(k.active)}">删除</button></td></tr>`).join('')}</tbody></table>${rows.length ? '' : emptyState('还没有 API Key', '从这里直接为任意已配置服务生成')}</div></section>`;
+  },
+  ledger() {
+    const data = state.admin;
+    setPageMeta('MONEY LEDGER', '资金账本', '<button class="button primary" data-action="gift-power">赠送电力</button>');
+    $('#pageContent').innerHTML = `<section class="panel"><div class="panel-head"><div><h2>充值与赠送记录</h2><p>只显示充值、赠送和余额调整，不显示每笔 API 消耗。</p></div></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>账户</th><th>类型</th><th>说明</th><th>电力变动</th><th>变动后余额</th><th>操作人</th></tr></thead><tbody>${data.ledger.map((item) => `<tr><td>${formatDate(item.created_at)}</td><td><strong>${escapeHtml(item.tenant_name)}</strong></td><td>${item.type === 'recharge' ? '充值' : item.type === 'refund' ? '退款' : '赠送/调整'}</td><td>${escapeHtml(item.title)}</td><td class="${Number(item.amount_micros) >= 0 ? 'positive' : 'negative'}">${Number(item.amount_micros) > 0 ? '+' : ''}${formatPower(item.amount_micros, 6)}</td><td>${formatPower(item.balance_after_micros, 6)}</td><td>${escapeHtml(item.created_by_name || '系统自动')}</td></tr>`).join('')}</tbody></table>${data.ledger.length ? '' : emptyState('还没有资金记录', '客户充值或管理员赠送电力后会显示在这里')}</div>${pagination('admin-ledger', data.ledgerPagination)}</section>`;
   },
   pricing() {
     const data = state.admin;
@@ -252,8 +257,8 @@ const adminViews = {
       <div class="step"><b>03</b><div><h3>填写模型和价格</h3><p>同一个向导继续填写模型信息和三组价格，每个输入框下方都有用途说明。</p><div class="guide-grid fields"><article><strong>对外模型 ID</strong><p>交付并写进项目配置的稳定名称，换上游时尽量保持不变。</p></article><article><strong>供应商模型 ID</strong><p>YYLX 模型列表里的精确名称，必须完全一致。</p></article><article><strong>展示名称</strong><p>控制台里便于人阅读，例如“Dumbo Claude”。</p></article><article><strong>价格标签</strong><p>例如“优惠期”“正式价格”，会随日志和通知展示。</p></article></div>
         <h3>三组价格怎么填</h3><div class="guide-grid"><article><strong>客户成交价</strong><p>实际扣除电力的价格。输入、缓存输入、输出分别按每 100 万 Token 填写。</p></article><article><strong>官方参考价</strong><p>仅供客户对比和计算展示倍率，通常填写模型官方公开价格。</p></article><article><strong>供应商采购成本</strong><p>你向上游实际支付的成本，仅管理员可见，用于判断利润，不参与客户扣费。</p></article><article><strong>缓存输入价</strong><p>供应商有独立缓存价格就照填；没有时可留空，系统会使用普通输入价。</p></article></div><div class="guide-callout"><strong>示例</strong><span>官方输入价 1 电力、你给客户的输入价 0.8 电力，展示倍率就是 0.8；如果备用线路成交价改成 1.2 电力，倍率会显示 1.2。充值余额本身不乘倍率。</span></div>
       </div></div>
-      <div class="step"><b>04</b><div><h3>生成交付用 API Key</h3><p>进入管理员“API Key”页面，点击“生成 Key”，填写便于识别的名称并选择服务。系统会自动带出所属账户、模式、模型和协议，并将完整 Key 复制到剪贴板。</p><p>页面以后仍可点击“复制”，但始终只显示遮盖后的内容。建议每个项目、环境或设备单独生成一枚 Key，例如“官网生产”“测试环境”，不要多人共用一枚 Key。</p><div class="config-list"><div><span>交付 Base URL</span><code>${escapeHtml(base)}</code></div><div><span>交付 API Key</span><code>管理员页面复制的 sk-live-...</code></div><div><span>交付 Model</span><code>添加模型时填写的对外模型 ID</code></div></div></div></div>
-      <div class="step"><b>05</b><div><h3>配置充值和管理密码</h3><p>“计费说明”中设置 1 电力对应多少人民币。修改只影响新订单，已有二维码保留下单金额。微信支付自动到账，使用方也可以输入自定义电力数量。</p><p>“充值审核”只保留人工订单。忘记密码时，在“客户管理”点击“重置密码”设置临时密码；旧登录会话立即失效，并应提醒对方登录后自行修改。</p><p class="panel-note">电力是统一结算单位；人民币汇率只决定购买电力时的应付金额。</p></div></div>
+      <div class="step"><b>04</b><div><h3>生成交付用 API Key</h3><p>进入管理员“API Key”页面，点击“生成 Key”，填写便于识别的名称并选择服务。系统会自动带出所属账户、模式、模型和协议，并将完整 Key 复制到剪贴板。</p><p>页面以后仍可点击“复制”，但始终只显示遮盖后的内容。建议每个项目、环境或设备单独生成一枚 Key。不再使用时，必须先停用，确认项目不再调用后才能删除；删除前会再次确认，历史调用日志不会被删除。</p><div class="config-list"><div><span>交付 Base URL</span><code>${escapeHtml(base)}</code></div><div><span>交付 API Key</span><code>管理员页面复制的 sk-live-...</code></div><div><span>交付 Model</span><code>添加模型时填写的对外模型 ID</code></div></div></div></div>
+      <div class="step"><b>05</b><div><h3>充值、赠送电力和管理密码</h3><p>“计费说明”中设置 1 电力对应多少人民币。修改只影响新订单，已有二维码保留下单金额。微信支付自动到账，使用方也可以输入自定义电力数量。</p><p>需要送试用额度时，可在“客户管理”点击某个账户的“赠送电力”，也可在“资金账本”统一操作。赠送会同时写入客户和超管账本。超管账本只看充值、赠送和调整，不展开每笔 API 消耗。</p><p>“充值审核”只保留人工订单。忘记密码时，在“客户管理”点击“重置密码”设置临时密码；旧登录会话立即失效。</p><p class="panel-note">电力是统一结算单位；人民币汇率只决定购买电力时的应付金额。</p></div></div>
       <div class="step"><b>06</b><div><h3>修改价格和发送通知</h3><p>在“模型配置”找到服务，点击“发布价格”。填写新成交价、官方参考价、采购成本和通知说明后发布。价格版本会自动加 1，新请求立即使用新价格，历史日志保留旧价格快照。</p><p>客户控制台左下角铃铛会出现红点；接入程序也可通过 <code>GET /v1/notices</code> 读取通知。只有发布价格时生成一次通知，不会随每个请求重复推送。</p></div></div>
       <div class="step"><b>07</b><div><h3>日常维护和故障切换</h3><p>上游模型或线路变化时，在管理员后台调整模型/线路；对外模型 ID 保持不变，客户项目通常无需修改。Key 泄露时只停用对应 Key 并重新生成，不影响同账户其他项目。</p><p>OpenAI 与 Anthropic 目前是<strong>原生协议透传</strong>，不做互相翻译。Anthropic 模型必须请求 <code>/v1/messages</code>；OpenAI 模型使用 <code>/v1/chat/completions</code> 或 <code>/v1/responses</code>。协议选错会返回 <code>protocol_mismatch</code>。</p></div></div>
       <h3>上线自查清单</h3><div class="guide-checklist"><span>正式域名和 HTTPS 可访问</span><span><code>PUBLIC_BASE_URL</code> 已改成正式域名</span><span>供应商 Base URL 与协议匹配</span><span>对外模型 ID 已用真实请求测试</span><span>成交价、官方参考价、采购成本没有填反</span><span>账户已有足够电力</span><span>交付的是中转站 Key，不是供应商 Key</span><span>数据库和服务器 <code>.env</code> 已备份</span></div>
@@ -284,6 +289,13 @@ async function loadPaged(name, page = 1) {
   state.customer[name] = result.data;
   state.customer[`${name}Pagination`] = result.pagination;
   showView(name === 'usage' ? 'usage' : 'billing');
+}
+
+async function loadAdminLedger(page = 1) {
+  const result = await api(`/api/admin/ledger?page=${page}`);
+  state.admin.ledger = result.data;
+  state.admin.ledgerPagination = result.pagination;
+  showView('ledger');
 }
 
 function downloadExport(name) {
@@ -420,6 +432,14 @@ async function handleAction(button) {
   }
   if (action === 'copy-key') await copySecret(`/api/customer/keys/${button.dataset.id}/secret`);
   if (action === 'toggle-key') { await api(`/api/customer/keys/${button.dataset.id}`, { method: 'PATCH', body: { active: button.dataset.active === 'true' } }); await refreshData(); showView('keys'); }
+  if (action === 'delete-key') {
+    if (button.dataset.active === 'true') { window.alert('请先停用这枚 API Key，确认不再有项目使用后再删除。'); return; }
+    if (!window.confirm('确定永久删除这枚已停用的 API Key 吗？\n\n删除后无法恢复，历史调用日志会保留。')) return;
+    await api(`/api/customer/keys/${button.dataset.id}`, { method: 'DELETE' });
+    toast('API Key 已删除');
+    await refreshData();
+    showView('keys');
+  }
   if (action === 'read-notice') { await api(`/api/customer/notices/${button.dataset.id}/read`, { method: 'POST' }); await refreshData(); showView('notices'); }
   if (action === 'wechat-recharge') {
     button.disabled = true;
@@ -444,6 +464,11 @@ async function handleAction(button) {
   if (action === 'usage-page' || action === 'ledger-page') await loadPaged(action.startsWith('usage') ? 'usage' : 'ledger', Number(button.dataset.page));
   if (action === 'usage-export' || action === 'ledger-export') downloadExport(action.startsWith('usage') ? 'usage' : 'ledger');
   if (action === 'new-tenant') openModal({ title: '新增客户', kicker: 'NEW TENANT', body: '<label>客户名称<input name="name" required /></label><div class="form-grid"><label>登录账号<input name="ownerAccount" type="text" minlength="3" autocomplete="off" required /></label><label>初始密码<input name="ownerPassword" type="password" minlength="8" required /></label></div><p class="form-hint">账号不要求是邮箱，至少 3 位且不能包含空格；英文、数字或邮箱均可。</p>', onSubmit: (values) => api('/api/admin/tenants', { method: 'POST', body: values }) });
+  if (action === 'gift-power') {
+    if (!state.admin.tenants.length) { toast('请先创建一个使用账户'); return; }
+    const selectedTenantId = button.dataset.tenantId || state.admin.tenants[0]?.id || '';
+    openModal({ title: '赠送电力', kicker: 'POWER GIFT', body: `<div class="form-hint">赠送后会立即增加账户余额，并同时记入客户账本和超管资金账本。</div><label>接收账户<select name="tenantId" required>${state.admin.tenants.map((tenant) => `<option value="${tenant.id}" ${tenant.id === selectedTenantId ? 'selected' : ''}>${escapeHtml(tenant.name)}</option>`).join('')}</select></label><label>赠送电力<input name="power" type="number" min="0.000001" max="1000000" step="0.000001" required /></label><label>赠送说明<input name="note" maxlength="100" placeholder="例如：新客户试用赠送" required /></label>`, submit: '确认赠送', onSubmit: (values) => api(`/api/admin/tenants/${values.tenantId}/power-gifts`, { method: 'POST', body: values }) });
+  }
   if (action === 'edit-credential') {
     const credential = state.admin.credentials.find((item) => item.id === button.dataset.id);
     openModal({ title: '编辑供应商连接', kicker: 'UPSTREAM CONNECTION', body: `<div class="guide-callout"><strong>${Number(credential.customer_count)} 个账户正在共享</strong><span>这枚供应商 Key 正在被 ${Number(credential.route_count)} 个 API 服务使用。修改地址、协议或 Key 会同时影响这些服务；Key 不更换时必须留空。</span></div><div class="form-grid"><label>连接名称<input name="label" value="${escapeHtml(credential.label)}" required /><small class="field-help">建议与 YYLX 中的模型/分组 Key 一一对应。</small></label><label>协议<select name="protocol"><option value="anthropic" ${credential.protocol === 'anthropic' ? 'selected' : ''}>Anthropic</option><option value="openai" ${credential.protocol === 'openai' ? 'selected' : ''}>OpenAI</option></select></label></div><label>Base URL<input name="baseUrl" value="${escapeHtml(credential.base_url)}" required /></label><label>更换供应商 API Key<input name="apiKey" type="password" autocomplete="off" placeholder="不修改请留空" /></label><label>状态<select name="active"><option value="true" ${credential.active ? 'selected' : ''}>启用</option><option value="false" ${credential.active ? '' : 'selected'}>停用</option></select></label>`, onSubmit: (values) => api(`/api/admin/credentials/${credential.id}`, { method: 'PATCH', body: { ...values, active: values.active === 'true' } }) });
@@ -474,6 +499,15 @@ async function handleAction(button) {
   }
   if (action === 'copy-admin-key') await copySecret(`/api/admin/keys/${button.dataset.id}/secret`);
   if (action === 'toggle-admin-key') { await api(`/api/admin/keys/${button.dataset.id}`, { method: 'PATCH', body: { active: button.dataset.active === 'true' } }); await refreshData(); showView('keys'); }
+  if (action === 'delete-admin-key') {
+    if (button.dataset.active === 'true') { window.alert('请先停用这枚 API Key，确认不再有项目使用后再删除。'); return; }
+    if (!window.confirm('确定永久删除这枚已停用的 API Key 吗？\n\n删除后无法恢复，历史调用日志会保留。')) return;
+    await api(`/api/admin/keys/${button.dataset.id}`, { method: 'DELETE' });
+    toast('API Key 已删除');
+    await refreshData();
+    showView('keys');
+  }
+  if (action === 'admin-ledger-page') await loadAdminLedger(Number(button.dataset.page));
   if (action === 'new-route') {
     if (!state.admin.tenants.length) { toast('请先创建一个使用账户'); return; }
     openModal({ title: '添加 API 服务', kicker: 'ONE-STEP SETUP', body: serviceFormBody(), submit: '保存服务', onSubmit: (values) => api('/api/admin/routes', { method: 'POST', body: values }) });

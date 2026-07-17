@@ -231,6 +231,18 @@ app.patch('/api/customer/keys/:id', requireUser, async (req, res) => {
   res.json(rows[0]);
 });
 
+app.delete('/api/customer/keys/:id', requireUser, async (req, res) => {
+  if (!req.user.tenant_id) return res.status(403).json({ error: '当前账号不能删除 Key' });
+  const key = await pool.query(
+    'SELECT active FROM customer_api_keys WHERE id = $1 AND tenant_id = $2',
+    [req.params.id, req.user.tenant_id],
+  );
+  if (!key.rows[0]) return res.status(404).json({ error: 'Key 不存在' });
+  if (key.rows[0].active) return res.status(409).json({ error: '请先停用 Key，再进行删除' });
+  await pool.query('DELETE FROM customer_api_keys WHERE id = $1 AND tenant_id = $2', [req.params.id, req.user.tenant_id]);
+  res.status(204).end();
+});
+
 app.post('/api/customer/recharge-orders', requireUser, async (req, res) => {
   const requestedPower = Number(req.body.requestedPower);
   if (!req.user.tenant_id || !Number.isFinite(requestedPower) || requestedPower <= 0) return res.status(400).json({ error: '申请充值的电力必须大于 0' });
@@ -361,7 +373,7 @@ app.get('/api/customer/export/:kind', requireUser, async (req, res) => {
 });
 
 app.get('/api/admin/dashboard', requireUser, requireAdmin, async (_req, res) => {
-  const [tenants, credentials, routes, keys, orders, settings] = await Promise.all([
+  const [tenants, credentials, routes, keys, orders, settings, ledger, ledgerCount] = await Promise.all([
     pool.query(`SELECT t.*, u.id AS owner_user_id, u.email AS owner_account,
       (SELECT count(*) FROM model_routes r WHERE r.tenant_id = t.id AND r.active = true) AS model_count
       FROM tenants t LEFT JOIN users u ON u.tenant_id = t.id AND u.role = 'customer' ORDER BY t.created_at DESC`),
@@ -384,11 +396,34 @@ app.get('/api/admin/dashboard', requireUser, requireAdmin, async (_req, res) => 
     pool.query(`SELECT o.*, t.name AS tenant_name FROM recharge_orders o JOIN tenants t ON t.id = o.tenant_id
       WHERE o.status = 'pending' AND o.payment_channel = 'manual' ORDER BY o.created_at ASC`),
     pool.query('SELECT * FROM platform_settings WHERE id = 1'),
+    pool.query(`SELECT l.type, l.amount_micros, l.amount_cny, l.title, l.balance_before_micros,
+      l.balance_after_micros, l.created_at, t.name AS tenant_name, u.display_name AS created_by_name
+      FROM ledger_entries l JOIN tenants t ON t.id = l.tenant_id
+      LEFT JOIN users u ON u.id = l.created_by
+      WHERE l.type <> 'consume' ORDER BY l.created_at DESC LIMIT 10`),
+    pool.query("SELECT count(*) AS total FROM ledger_entries WHERE type <> 'consume'"),
   ]);
   res.json({
     tenants: tenants.rows, credentials: credentials.rows, routes: routes.rows, keys: keys.rows,
-    orders: orders.rows, settings: settings.rows[0], wechatPayConfigured: isWechatPayConfigured(),
+    orders: orders.rows, settings: settings.rows[0], ledger: ledger.rows,
+    ledgerPagination: { page: 1, pageSize: 10, total: Number(ledgerCount.rows[0].total) },
+    wechatPayConfigured: isWechatPayConfigured(),
   });
+});
+
+app.get('/api/admin/ledger', requireUser, requireAdmin, async (req, res) => {
+  const page = pageNumber(req.query.page);
+  const pageSize = 10;
+  const offset = (page - 1) * pageSize;
+  const [items, count] = await Promise.all([
+    pool.query(`SELECT l.type, l.amount_micros, l.amount_cny, l.title, l.balance_before_micros,
+      l.balance_after_micros, l.created_at, t.name AS tenant_name, u.display_name AS created_by_name
+      FROM ledger_entries l JOIN tenants t ON t.id = l.tenant_id
+      LEFT JOIN users u ON u.id = l.created_by
+      WHERE l.type <> 'consume' ORDER BY l.created_at DESC LIMIT 10 OFFSET $1`, [offset]),
+    pool.query("SELECT count(*) AS total FROM ledger_entries WHERE type <> 'consume'"),
+  ]);
+  res.json({ data: items.rows, pagination: { page, pageSize, total: Number(count.rows[0].total) } });
 });
 
 app.patch('/api/admin/settings/recharge', requireUser, requireAdmin, async (req, res) => {
@@ -437,6 +472,14 @@ app.patch('/api/admin/keys/:id', requireUser, requireAdmin, async (req, res) => 
   res.json(rows[0]);
 });
 
+app.delete('/api/admin/keys/:id', requireUser, requireAdmin, async (req, res) => {
+  const key = await pool.query('SELECT active FROM customer_api_keys WHERE id = $1', [req.params.id]);
+  if (!key.rows[0]) return res.status(404).json({ error: 'Key 不存在' });
+  if (key.rows[0].active) return res.status(409).json({ error: '请先停用 Key，再进行删除' });
+  await pool.query('DELETE FROM customer_api_keys WHERE id = $1', [req.params.id]);
+  res.status(204).end();
+});
+
 app.post('/api/admin/tenants', requireUser, requireAdmin, async (req, res) => {
   const { name, ownerPassword } = req.body;
   const ownerAccount = String(req.body.ownerAccount || req.body.ownerEmail || '').trim().toLowerCase();
@@ -453,6 +496,34 @@ app.post('/api/admin/tenants', requireUser, requireAdmin, async (req, res) => {
     );
     return { tenant: tenant.rows[0], user: user.rows[0] };
   });
+  res.status(201).json(result);
+});
+
+app.post('/api/admin/tenants/:id/power-gifts', requireUser, requireAdmin, async (req, res) => {
+  const power = Number(req.body.power);
+  const note = String(req.body.note || '').trim();
+  if (!Number.isFinite(power) || power <= 0 || power > 1_000_000) {
+    return res.status(400).json({ error: '赠送电力必须大于 0 且不超过 1000000' });
+  }
+  if (!note || note.length > 100) return res.status(400).json({ error: '请填写 100 字以内的赠送说明' });
+  const amountMicros = Math.round(power * 1_000_000);
+  if (!Number.isSafeInteger(amountMicros) || amountMicros <= 0) return res.status(400).json({ error: '赠送电力精度无效' });
+  const result = await transaction(async (client) => {
+    const account = await client.query('SELECT id, balance_micros, active FROM tenants WHERE id = $1 FOR UPDATE', [req.params.id]);
+    if (!account.rows[0] || !account.rows[0].active) return null;
+    const balanceBefore = Number(account.rows[0].balance_micros);
+    const balanceAfter = balanceBefore + amountMicros;
+    if (!Number.isSafeInteger(balanceAfter)) throw Object.assign(new Error('账户余额超出安全范围'), { status: 400 });
+    await client.query('UPDATE tenants SET balance_micros = $2 WHERE id = $1', [req.params.id, balanceAfter]);
+    await client.query(
+      `INSERT INTO ledger_entries
+        (tenant_id, type, amount_power, amount_micros, title, created_by, balance_before_micros, balance_after_micros)
+       VALUES ($1, 'adjustment', 0, $2, $3, $4, $5, $6)`,
+      [req.params.id, amountMicros, `管理员赠送：${note}`, req.user.id, balanceBefore, balanceAfter],
+    );
+    return { balanceBefore, balanceAfter, amountMicros };
+  });
+  if (!result) return res.status(404).json({ error: '接收账户不存在或已停用' });
   res.status(201).json(result);
 });
 
