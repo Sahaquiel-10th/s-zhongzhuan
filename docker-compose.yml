@@ -8,6 +8,7 @@ services:
       - "127.0.0.1:4173:4173"
     volumes:
       - super_relay_data:/app/data
+      - ./secrets/wechat:/app/secrets/wechat:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:4173/"]

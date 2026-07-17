@@ -167,6 +167,8 @@ pre { margin: 0; padding: 14px; overflow: auto; border-radius: 6px; background: 
 .plan-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
 .plan { min-height: 96px; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: #f7f9f9; text-align: left; }
 .plan:hover { border-color: var(--teal); background: #f0f9f8; }
+.plan:disabled { cursor: not-allowed; opacity: .55; }
+.plan:disabled:hover { border-color: var(--line); background: #f7f9f9; }
 .plan strong, .plan span { display: block; }
 .plan strong { font-size: 22px; }
 .plan span { margin-top: 8px; color: var(--muted); font-size: 11px; }
@@ -204,6 +206,14 @@ dialog::backdrop { background: rgba(8, 24, 29, 0.66); }
 .modal-card { padding: 22px; }
 .modal-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.payment-box { display: grid; justify-items: center; gap: 12px; text-align: center; }
+.payment-summary { display: grid; gap: 5px; }
+.payment-summary span, .payment-summary small, .payment-box > small { color: var(--muted); font-size: 11px; }
+.payment-summary strong { color: var(--teal-dark); font-size: 30px; }
+.payment-qr { width: min(320px, 80vw); height: auto; border: 1px solid var(--line); border-radius: 8px; }
+.payment-status { margin: 0; padding: 9px 13px; border-radius: 5px; background: #fff0d8; color: var(--amber); font-size: 12px; font-weight: 800; }
+.payment-status.paid { background: #e2f3ea; color: var(--green); }
+.payment-status.expired, .payment-status.failed, .payment-status.closed { background: #e9edef; color: #687680; }
 .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 11px; }
 .form-grid.three { grid-template-columns: repeat(3, 1fr); }
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 20; padding: 12px 15px; border-radius: 6px; background: var(--nav); color: white; opacity: 0; transform: translateY(10px); transition: 160ms ease; pointer-events: none; }

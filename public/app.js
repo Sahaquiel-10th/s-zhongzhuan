@@ -1,6 +1,7 @@
 const state = {
   me: null, customer: null, admin: null, view: 'overview',
   usageFilters: { startAt: '', endAt: '' }, ledgerFilters: { startAt: '', endAt: '' },
+  paymentPollTimer: null,
 };
 
 const customerNav = [
@@ -164,7 +165,7 @@ const client = new OpenAI({
     const base = `${state.customer.publicBaseUrl}/v1`;
     setPageMeta('USER GUIDE', '使用说明');
     $('#pageContent').innerHTML = `<section class="panel docs"><div class="panel-head"><div><h2>第一次使用，从这里开始</h2><p>你只需要准备三个东西：接口地址（Base URL）、API Key、模型 ID。三项都可以在本控制台找到。</p></div></div>
-      <div class="guide-callout"><strong>最重要的规则</strong><span>每枚 Key 已绑定一个模型和一种协议。OpenAI 模型走 OpenAI 接口，Anthropic 模型走 Anthropic 接口，二者请求格式不能混用。</span></div>
+      <div class="guide-callout"><strong>最重要的规则</strong><span>每枚 Key 已绑定一个模型和一种协议。OpenAI 模型走 OpenAI 接口，Anthropic 模型走 Anthropic 接口，二者请求格式不能混用。</span></div><div class="guide-callout"><strong>微信充值怎么到账？</strong><span>打开“充值与账本”，选择电力套餐后使用微信扫码。二维码 15 分钟内有效，支付成功后系统自动增加电力，无需提交截图或等待人工确认。页面显示的是创建订单时的人民币汇率，之后管理员改价不会影响这笔订单。</span></div>
       <div class="step"><b>01</b><div><h3>确认可用模型和协议</h3><p>打开左侧“可用模型”，找到要使用的模型。复制模型卡片中的模型 ID，并记住它标注的是 <strong>OpenAI 协议</strong>还是 <strong>Anthropic 协议</strong>。模型 ID 必须原样填写，不能自己改名。</p></div></div>
       <div class="step"><b>02</b><div><h3>生成或复制 API Key</h3><p>打开“API Key”，点击“生成 Key”，依次填写名称、模式并选择模型。生成后会自动复制；以后也可以点击列表中的“复制”。页面只显示遮盖后的 Key，这是正常的。</p><p class="panel-note">Key 相当于密码，请放进服务器环境变量，不要写进公开代码、截图、群聊或 Git 仓库。怀疑泄露时请立即停用并重新生成。</p></div></div>
       <div class="step"><b>03</b><div><h3>填写统一接口地址</h3><div class="config-list"><div><span>Base URL</span><code>${escapeHtml(base)}</code></div><div><span>API Key</span><code>sk-live-...</code></div><div><span>Model</span><code>从“可用模型”复制的模型 ID</code></div></div><p class="panel-note">大多数第三方软件只需要填写这三项。原来已经支持 OpenAI/Anthropic 自定义地址的软件，一般不需要改业务代码。</p></div></div>
@@ -192,8 +193,8 @@ GET ${escapeHtml(base)}/notices</pre><p class="panel-note">价格有更新时，
   billing() {
     setPageMeta('BILLING', '充值与账本');
     const data = state.customer;
-    $('#pageContent').innerHTML = `<div class="content-grid"><section class="panel span-2"><div class="panel-head"><div><h2>申请充值电力</h2><p>1 电力 = 1 美元结算额度。管理员根据实际收款确认到账电力。</p></div><strong class="balance-total">${formatPower(data.tenant.balance_micros, 4)} <small>余额</small></strong></div><div class="plan-grid">${[10, 50, 100, 500].map((amount) => `<button class="plan" data-action="recharge" data-amount="${amount}"><strong>${amount} 电力</strong><span>提交充值需求</span></button>`).join('')}</div></section>
-      <section class="panel"><div class="panel-head"><div><h2>充值订单</h2><p>实际收款和到账电力由管理员确认。</p></div></div><div class="ledger">${data.orders.map((o) => `<div class="ledger-row"><div><strong>申请 ${formatPower(o.requested_power_micros, 2)}</strong><span>${o.status === 'paid' ? `实际到账 ${formatPower(o.credited_micros, 4)} · ` : ''}${formatDate(o.created_at)}</span></div><span class="tag ${o.status === 'paid' ? 'success' : 'warning'}">${o.status === 'paid' ? '已入账' : '待确认'}</span></div>`).join('') || emptyState('暂无充值订单', '选择电力数量提交充值')}</div></section>
+    $('#pageContent').innerHTML = `<div class="content-grid"><section class="panel span-2"><div class="panel-head"><div><h2>微信扫码充值</h2><p>当前汇率：1 电力 = ${formatMoney(data.rechargeCnyPerPower)}。订单生成后 15 分钟内有效。</p></div><strong class="balance-total">${formatPower(data.tenant.balance_micros, 4)} <small>余额</small></strong></div><div class="plan-grid">${[10, 50, 100, 500].map((amount) => `<button class="plan" data-action="wechat-recharge" data-amount="${amount}" ${data.wechatPayConfigured ? '' : 'disabled'}><strong>${amount} 电力</strong><span>${formatMoney(amount * data.rechargeCnyPerPower)} · 微信扫码</span></button>`).join('')}</div>${data.wechatPayConfigured ? '' : '<p class="panel-note">微信支付尚未完成服务器配置，请联系管理员；人工充值仍可由管理员处理。</p>'}</section>
+      <section class="panel"><div class="panel-head"><div><h2>充值订单</h2><p>微信支付成功后自动入账。</p></div></div><div class="ledger">${data.orders.map((o) => { const label = o.status === 'paid' ? '已入账' : o.status === 'cancelled' ? '已失效' : o.payment_channel === 'wechat_native' ? '待支付' : '待确认'; const tone = o.status === 'paid' ? 'success' : o.status === 'cancelled' ? 'muted' : 'warning'; return `<div class="ledger-row"><div><strong>${o.payment_channel === 'wechat_native' ? '微信充值' : '人工充值'} ${formatPower(o.requested_power_micros, 2)}</strong><span>${o.amount_cny ? `${formatMoney(o.amount_cny)} · ` : ''}${o.status === 'paid' ? `实际到账 ${formatPower(o.credited_micros, 4)} · ` : ''}${formatDate(o.created_at)}</span></div><span class="tag ${tone}">${label}</span></div>`; }).join('') || emptyState('暂无充值订单', '选择电力数量生成微信支付二维码')}</div></section>
       <section class="panel span-3"><div class="panel-head"><div><h2>账本流水</h2><p>每页 10 条；可按日期筛选并导出。</p></div></div>${filterBar('ledger', state.ledgerFilters)}<div class="table-wrap"><table><thead><tr><th>时间</th><th>项目</th><th>类型</th><th>变动前</th><th>余额变动</th><th>变动后</th></tr></thead><tbody>${data.ledger.map((l) => `<tr><td>${formatDate(l.created_at)}</td><td>${escapeHtml(l.title)}</td><td>${escapeHtml(l.type)}</td><td>${formatPower(l.balance_before_micros, 6)}</td><td class="${Number(l.amount_micros) > 0 ? 'positive' : 'negative'}">${Number(l.amount_micros) > 0 ? '+' : ''}${formatPower(l.amount_micros, 6)}</td><td>${formatPower(l.balance_after_micros, 6)}</td></tr>`).join('')}</tbody></table>${data.ledger.length ? '' : emptyState('暂无账本流水', '充值或调用后会显示在这里')}</div>${pagination('ledger', data.ledgerPagination)}</section></div>`;
   },
 };
@@ -232,6 +233,7 @@ const adminViews = {
       ${metric('价格通知', '自动生成', '每次发布保留一条持久通知')}
       ${metric('计量来源', 'Token', '供应商响应 usage')}
     </div><div class="content-grid">
+      <section class="panel span-3"><div class="panel-head"><div><h2>微信充值汇率</h2><p>当前 1 电力收取的人民币金额；修改只影响之后创建的新订单。</p></div><button class="button primary" data-action="edit-recharge-rate">修改汇率</button></div><div class="formula-box"><div><span>当前汇率</span><strong>1 电力 = ${formatMoney(data.settings.recharge_cny_per_power)}</strong></div><div><span>微信支付配置</span><strong>${data.wechatPayConfigured ? '已配置' : '尚未配置'}</strong></div><div><span>历史订单</span><strong>保留下单时的汇率快照</strong></div></div></section>
       <section class="panel span-2"><div class="panel-head"><div><h2>结算公式</h2><p>成交价直接参与计费，倍率只由成交价与官方参考价推导展示。</p></div></div><div class="formula-box"><div><span>客户实扣</span><strong>输入 Token × 客户输入价 + 输出 Token × 客户输出价</strong></div><div><span>展示倍率</span><strong>客户价 ÷ 官方参考价</strong></div><div><span>价格发布</span><strong>版本 +1 并生成通知</strong></div></div></section>
       <section class="panel"><div class="panel-head"><div><h2>商业边界</h2><p>供应商成本不会进入客户 API 和页面。</p></div></div><div class="security-list"><span>客户看到成交价和官方参考价</span><span>供应商采购价仅管理员可见</span><span>每笔日志固化调用时的价格版本</span></div></section>
     </div>`;
@@ -247,7 +249,7 @@ const adminViews = {
         <h3>三组价格怎么填</h3><div class="guide-grid"><article><strong>客户成交价</strong><p>实际扣除电力的价格。输入、缓存输入、输出分别按每 100 万 Token 填写。</p></article><article><strong>官方参考价</strong><p>仅供客户对比和计算展示倍率，通常填写模型官方公开价格。</p></article><article><strong>供应商采购成本</strong><p>你向上游实际支付的成本，仅管理员可见，用于判断利润，不参与客户扣费。</p></article><article><strong>缓存输入价</strong><p>供应商有独立缓存价格就照填；没有时可留空，系统会使用普通输入价。</p></article></div><div class="guide-callout"><strong>示例</strong><span>官方输入价 1 电力、你给客户的输入价 0.8 电力，展示倍率就是 0.8；如果备用线路成交价改成 1.2 电力，倍率会显示 1.2。充值余额本身不乘倍率。</span></div>
       </div></div>
       <div class="step"><b>04</b><div><h3>生成交付用 API Key</h3><p>进入管理员“API Key”页面，点击“生成 Key”，填写便于识别的名称并选择服务。系统会自动带出所属账户、模式、模型和协议，并将完整 Key 复制到剪贴板。</p><p>页面以后仍可点击“复制”，但始终只显示遮盖后的内容。建议每个项目、环境或设备单独生成一枚 Key，例如“官网生产”“测试环境”，不要多人共用一枚 Key。</p><div class="config-list"><div><span>交付 Base URL</span><code>${escapeHtml(base)}</code></div><div><span>交付 API Key</span><code>管理员页面复制的 sk-live-...</code></div><div><span>交付 Model</span><code>添加模型时填写的对外模型 ID</code></div></div></div></div>
-      <div class="step"><b>05</b><div><h3>充值和确认到账</h3><p>客户在“充值与账本”提交电力数量后，订单会出现在“充值审核”。确认收到款项后，填写实际到账电力；实收人民币可选，只用于对账。确认后余额立即增加，而且同一订单只能确认一次。</p><p class="panel-note">1 电力 = 1 美元结算额度。实际收多少人民币、兑换多少电力由你在确认订单时决定，不要提前把折扣固化在充值余额中。</p></div></div>
+      <div class="step"><b>05</b><div><h3>配置微信充值和人工入账</h3><p>“计费说明”中可以设置 1 电力对应多少人民币，默认是 7 元。修改汇率只影响之后创建的新订单，已有二维码保留下单时的金额。微信付款通过验签回调后自动到账，不会进入“充值审核”。</p><p>“充值审核”只保留人工订单：确认已经线下收款后，填写实际到账电力和可选的实收人民币。同一人工订单只能确认一次。</p><p class="panel-note">电力仍然是美元结算额度；人民币汇率只是客户购买电力时的收款价格，两套概念不要混在一起。</p></div></div>
       <div class="step"><b>06</b><div><h3>修改价格和发送通知</h3><p>在“模型配置”找到服务，点击“发布价格”。填写新成交价、官方参考价、采购成本和通知说明后发布。价格版本会自动加 1，新请求立即使用新价格，历史日志保留旧价格快照。</p><p>客户控制台左下角铃铛会出现红点；接入程序也可通过 <code>GET /v1/notices</code> 读取通知。只有发布价格时生成一次通知，不会随每个请求重复推送。</p></div></div>
       <div class="step"><b>07</b><div><h3>日常维护和故障切换</h3><p>上游模型或线路变化时，在管理员后台调整模型/线路；对外模型 ID 保持不变，客户项目通常无需修改。Key 泄露时只停用对应 Key 并重新生成，不影响同账户其他项目。</p><p>OpenAI 与 Anthropic 目前是<strong>原生协议透传</strong>，不做互相翻译。Anthropic 模型必须请求 <code>/v1/messages</code>；OpenAI 模型使用 <code>/v1/chat/completions</code> 或 <code>/v1/responses</code>。协议选错会返回 <code>protocol_mismatch</code>。</p></div></div>
       <h3>上线自查清单</h3><div class="guide-checklist"><span>正式域名和 HTTPS 可访问</span><span><code>PUBLIC_BASE_URL</code> 已改成正式域名</span><span>供应商 Base URL 与协议匹配</span><span>对外模型 ID 已用真实请求测试</span><span>成交价、官方参考价、采购成本没有填反</span><span>账户已有足够电力</span><span>交付的是中转站 Key，不是供应商 Key</span><span>数据库和服务器 <code>.env</code> 已备份</span></div>
@@ -316,9 +318,46 @@ function openModal({ title, kicker, body, submit = '保存', onSubmit }) {
   $('#modal').showModal();
 }
 
+function stopPaymentPolling() {
+  if (state.paymentPollTimer) clearTimeout(state.paymentPollTimer);
+  state.paymentPollTimer = null;
+}
+
+function renderPaymentModal(order) {
+  $('#modalTitle').textContent = '微信扫码支付';
+  $('#modalKicker').textContent = 'WECHAT PAY';
+  $('#modalSubmit').textContent = '关闭';
+  $('#modalError').textContent = '';
+  const statusText = order.status === 'paid'
+    ? '支付成功，电力已经到账'
+    : order.status === 'expired'
+      ? '订单已失效，请关闭后重新创建'
+      : order.status === 'failed' ? '订单创建失败' : '请使用微信扫描二维码付款';
+  $('#modalBody').innerHTML = `<div class="payment-box"><div class="payment-summary"><span>${formatPower(order.requestedPowerMicros, 2)}</span><strong>${formatMoney(order.amountCny)}</strong><small>汇率快照：1 电力 = ${formatMoney(order.cnyPerPower)}</small></div>${order.qrCodeDataUrl ? `<img class="payment-qr" src="${escapeHtml(order.qrCodeDataUrl)}" alt="微信支付二维码" />` : ''}<p class="payment-status ${order.status}">${statusText}</p><small>二维码有效期至 ${formatDate(order.expiresAt)}</small></div>`;
+  $('#modalForm').onsubmit = (event) => { event.preventDefault(); stopPaymentPolling(); $('#modal').close(); };
+}
+
+async function pollPayment(orderId) {
+  try {
+    const order = await api(`/api/customer/pay/wechat/orders/${orderId}`);
+    renderPaymentModal(order);
+    if (order.status === 'paid') {
+      stopPaymentPolling();
+      await refreshData();
+      toast('支付成功，电力已经到账');
+      showView('billing');
+      return;
+    }
+    if (['expired', 'failed', 'closed'].includes(order.status)) { stopPaymentPolling(); return; }
+  } catch (error) {
+    $('#modalError').textContent = error.message;
+  }
+  state.paymentPollTimer = setTimeout(() => pollPayment(orderId), 2000);
+}
+
 async function handleAction(button) {
   const action = button.dataset.action;
-  if (action === 'close-modal') { $('#modal').close(); return; }
+  if (action === 'close-modal') { stopPaymentPolling(); $('#modal').close(); return; }
   if (action === 'new-key') {
     const available = state.customer.models.filter((route) => route.active);
     const renderRouteOptions = (mode) => available.filter((route) => route.service_mode === mode).map((route) => `<option value="${route.id}">${escapeHtml(route.display_name)} · ${escapeHtml(route.public_model_id)} · ${protocolLabel(route.protocol)}</option>`).join('');
@@ -332,7 +371,16 @@ async function handleAction(button) {
   if (action === 'copy-key') await copySecret(`/api/customer/keys/${button.dataset.id}/secret`);
   if (action === 'toggle-key') { await api(`/api/customer/keys/${button.dataset.id}`, { method: 'PATCH', body: { active: button.dataset.active === 'true' } }); await refreshData(); showView('keys'); }
   if (action === 'read-notice') { await api(`/api/customer/notices/${button.dataset.id}/read`, { method: 'POST' }); await refreshData(); showView('notices'); }
-  if (action === 'recharge') { await api('/api/customer/recharge-orders', { method: 'POST', body: { requestedPower: Number(button.dataset.amount) } }); toast('充值申请已提交，等待管理员确认'); await refreshData(); showView('billing'); }
+  if (action === 'wechat-recharge') {
+    button.disabled = true;
+    try {
+      const order = await api('/api/customer/pay/wechat/native', { method: 'POST', body: { requestedPower: Number(button.dataset.amount) } });
+      stopPaymentPolling();
+      renderPaymentModal(order);
+      $('#modal').showModal();
+      state.paymentPollTimer = setTimeout(() => pollPayment(order.id), 2000);
+    } finally { button.disabled = false; }
+  }
   if (action === 'usage-filter' || action === 'ledger-filter') {
     const name = action.startsWith('usage') ? 'usage' : 'ledger';
     state[`${name}Filters`] = { startAt: $(`#${name}StartAt`).value, endAt: $(`#${name}EndAt`).value };
@@ -352,6 +400,9 @@ async function handleAction(button) {
   if (action === 'edit-route') {
     const route = state.admin.routes.find((item) => item.id === button.dataset.id);
     openModal({ title: '发布新价格', kicker: `PRICING V${Number(route.pricing_version) + 1}`, body: `<div class="form-hint">${escapeHtml(route.display_name)} · 发布后立即生效，自动生成客户通知。</div><div class="form-grid"><label>价格标签<input name="pricingLabel" value="${escapeHtml(route.pricing_label)}" required /></label><label>客户通知<input name="notificationBody" placeholder="说明本次价格调整" /></label></div><h3>客户成交价</h3><div class="form-grid three"><label>输入<input name="customerInputPrice" type="number" min="0" step="0.000001" value="${route.customer_input_power_per_million}" required /></label><label>缓存输入<input name="customerCachedInputPrice" type="number" min="0" step="0.000001" value="${route.customer_cached_input_power_per_million}" required /></label><label>输出<input name="customerOutputPrice" type="number" min="0" step="0.000001" value="${route.customer_output_power_per_million}" required /></label></div><h3>官方参考价</h3><div class="form-grid three"><label>输入<input name="referenceInputPrice" type="number" min="0" step="0.000001" value="${route.reference_input_power_per_million}" required /></label><label>缓存输入<input name="referenceCachedInputPrice" type="number" min="0" step="0.000001" value="${route.reference_cached_input_power_per_million}" required /></label><label>输出<input name="referenceOutputPrice" type="number" min="0" step="0.000001" value="${route.reference_output_power_per_million}" required /></label></div><h3>供应商采购成本</h3><div class="form-grid three"><label>输入<input name="upstreamInputPrice" type="number" min="0" step="0.000001" value="${route.upstream_input_power_per_million}" required /></label><label>缓存输入<input name="upstreamCachedInputPrice" type="number" min="0" step="0.000001" value="${route.upstream_cached_input_power_per_million}" required /></label><label>输出<input name="upstreamOutputPrice" type="number" min="0" step="0.000001" value="${route.upstream_output_power_per_million}" required /></label></div>`, submit: '发布并通知客户', onSubmit: (values) => api(`/api/admin/routes/${route.id}`, { method: 'PATCH', body: values }) });
+  }
+  if (action === 'edit-recharge-rate') {
+    openModal({ title: '修改微信充值汇率', kicker: 'RECHARGE RATE', body: `<div class="form-hint">修改只影响新订单；已创建订单继续按原汇率和金额支付。</div><label>1 电力 = 人民币<input name="cnyPerPower" type="number" min="0.000001" max="100000" step="0.000001" value="${state.admin.settings.recharge_cny_per_power}" required /></label>`, submit: '保存新汇率', onSubmit: (values) => api('/api/admin/settings/recharge', { method: 'PATCH', body: values }) });
   }
   if (action === 'toggle-route') { await api(`/api/admin/routes/${button.dataset.id}`, { method: 'PATCH', body: { active: button.dataset.active === 'true' } }); await refreshData(); showView('routes'); }
   if (action === 'confirm-order') {

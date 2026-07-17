@@ -5,11 +5,13 @@ import cookieParser from 'cookie-parser';
 import express from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
-import { config, assertProductionConfig } from './config.js';
+import { config, assertProductionConfig, isWechatPayConfigured } from './config.js';
 import { pool, transaction } from './db.js';
 import { clearSession, issueSession, requireAdmin, requireUser } from './auth.js';
 import { createApiKey, decryptSecret, encryptSecret, hashApiKey } from './crypto.js';
 import { proxyRouter } from './proxy.js';
+import { createWechatPayment, creditWechatPayment, expireWechatPayments, getWechatPayment } from './payments.js';
+import { parseWechatNotification, WechatPayError } from './wechat-pay.js';
 
 assertProductionConfig();
 
@@ -81,6 +83,18 @@ async function routeForKey({ routeId, tenantId = null }) {
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(helmet({ contentSecurityPolicy: false }));
+app.post('/api/pay/wechat/notify', express.raw({ type: 'application/json', limit: '256kb' }), async (req, res) => {
+  try {
+    if (!Buffer.isBuffer(req.body)) throw new WechatPayError('微信支付回调必须是 JSON 原始报文', { status: 400 });
+    const { transaction: payment } = parseWechatNotification(req.headers, req.body);
+    if (payment) await creditWechatPayment(payment);
+    res.status(204).end();
+  } catch (error) {
+    console.warn('微信支付回调处理失败', { code: error.code || 'UNKNOWN', message: error.message });
+    const status = Number(error.status) >= 400 && Number(error.status) < 600 ? Number(error.status) : 500;
+    res.status(status).json({ code: error.code || 'FAIL', message: '微信支付回调处理失败' });
+  }
+});
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
 
@@ -113,7 +127,7 @@ app.get('/api/me', requireUser, async (req, res) => {
 app.get('/api/customer/dashboard', requireUser, async (req, res) => {
   if (!req.user.tenant_id) return res.status(403).json({ error: '管理员没有客户账本' });
   const tenantId = req.user.tenant_id;
-  const [tenant, models, keys, usage, usageCount, ledger, ledgerCount, orders, notices] = await Promise.all([
+  const [tenant, models, keys, usage, usageCount, ledger, ledgerCount, orders, notices, rechargeSettings] = await Promise.all([
     pool.query('SELECT id, name, balance_micros, reserved_micros, active FROM tenants WHERE id = $1', [tenantId]),
     pool.query(`SELECT r.id, r.public_model_id, r.display_name, r.active, r.service_mode, r.pricing_version, r.pricing_label, r.pricing_updated_at,
       customer_input_power_per_million, customer_cached_input_power_per_million, customer_output_power_per_million,
@@ -138,17 +152,24 @@ app.get('/api/customer/dashboard', requireUser, async (req, res) => {
     pool.query('SELECT count(*) AS total FROM usage_logs WHERE tenant_id = $1', [tenantId]),
     pool.query('SELECT type, amount_micros, amount_cny, title, reference_id, balance_before_micros, balance_after_micros, created_at FROM ledger_entries WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 10', [tenantId]),
     pool.query('SELECT count(*) AS total FROM ledger_entries WHERE tenant_id = $1', [tenantId]),
-    pool.query('SELECT id, requested_power_micros, amount_cny, credited_micros, settlement_cny_per_power, status, payment_channel, created_at FROM recharge_orders WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 50', [tenantId]),
+    pool.query(`SELECT o.id, o.requested_power_micros, o.amount_cny, o.credited_micros,
+      o.settlement_cny_per_power, o.status, o.payment_channel, o.created_at,
+      p.id AS wechat_payment_id, p.status AS wechat_payment_status, p.expires_at
+      FROM recharge_orders o LEFT JOIN wechat_pay_orders p ON p.recharge_order_id = o.id
+      WHERE o.tenant_id = $1 ORDER BY o.created_at DESC LIMIT 50`, [tenantId]),
     pool.query(`SELECT n.id, n.route_id, n.type, n.title, n.body, n.pricing_version, n.created_at,
       CASE WHEN nr.user_id IS NULL THEN 0 ELSE 1 END AS is_read
       FROM pricing_notifications n LEFT JOIN notification_reads nr ON nr.notification_id = n.id AND nr.user_id = $2
       WHERE n.tenant_id = $1 ORDER BY n.created_at DESC LIMIT 100`, [tenantId, req.user.id]),
+    pool.query('SELECT recharge_cny_per_power FROM platform_settings WHERE id = 1'),
   ]);
   res.json({
     tenant: tenant.rows[0], models: models.rows, keys: keys.rows,
     usage: usage.rows, usagePagination: { page: 1, pageSize: 10, total: Number(usageCount.rows[0].total) },
     ledger: ledger.rows, ledgerPagination: { page: 1, pageSize: 10, total: Number(ledgerCount.rows[0].total) },
     orders: orders.rows, publicBaseUrl: config.publicBaseUrl,
+    rechargeCnyPerPower: Number(rechargeSettings.rows[0].recharge_cny_per_power),
+    wechatPayConfigured: isWechatPayConfigured(),
     notices: notices.rows,
   });
 });
@@ -202,6 +223,29 @@ app.post('/api/customer/recharge-orders', requireUser, async (req, res) => {
     [req.user.tenant_id, requestedPowerMicros],
   );
   res.status(201).json(rows[0]);
+});
+
+const paymentLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: '创建支付订单过于频繁，请稍后再试' },
+});
+
+app.post('/api/customer/pay/wechat/native', paymentLimiter, requireUser, async (req, res, next) => {
+  try {
+    if (!req.user.tenant_id) return res.status(403).json({ error: '当前账号不能创建充值订单' });
+    const order = await createWechatPayment({ tenantId: req.user.tenant_id, requestedPower: req.body.requestedPower });
+    res.status(201).json(order);
+  } catch (error) { next(error); }
+});
+
+app.get('/api/customer/pay/wechat/orders/:id', requireUser, async (req, res, next) => {
+  try {
+    if (!req.user.tenant_id) return res.status(403).json({ error: '当前账号不能查询充值订单' });
+    res.json(await getWechatPayment({ tenantId: req.user.tenant_id, paymentOrderId: req.params.id }));
+  } catch (error) { next(error); }
 });
 
 app.post('/api/customer/notices/:id/read', requireUser, async (req, res) => {
@@ -316,10 +360,26 @@ app.get('/api/admin/dashboard', requireUser, requireAdmin, async (_req, res) => 
       LEFT JOIN upstream_credentials c ON c.id = r.credential_id
       ORDER BY k.created_at DESC`),
     pool.query(`SELECT o.*, t.name AS tenant_name FROM recharge_orders o JOIN tenants t ON t.id = o.tenant_id
-      WHERE o.status = 'pending' ORDER BY o.created_at ASC`),
+      WHERE o.status = 'pending' AND o.payment_channel = 'manual' ORDER BY o.created_at ASC`),
     pool.query('SELECT * FROM platform_settings WHERE id = 1'),
   ]);
-  res.json({ tenants: tenants.rows, credentials: credentials.rows, routes: routes.rows, keys: keys.rows, orders: orders.rows, settings: settings.rows[0] });
+  res.json({
+    tenants: tenants.rows, credentials: credentials.rows, routes: routes.rows, keys: keys.rows,
+    orders: orders.rows, settings: settings.rows[0], wechatPayConfigured: isWechatPayConfigured(),
+  });
+});
+
+app.patch('/api/admin/settings/recharge', requireUser, requireAdmin, async (req, res) => {
+  const cnyPerPower = Number(req.body.cnyPerPower);
+  if (!Number.isFinite(cnyPerPower) || cnyPerPower <= 0 || cnyPerPower > 100_000) {
+    return res.status(400).json({ error: '人民币兑电力汇率必须大于 0 且不超过 100000' });
+  }
+  const { rows } = await pool.query(
+    `UPDATE platform_settings SET recharge_cny_per_power = $1, updated_at = now()
+      WHERE id = 1 RETURNING *`,
+    [Math.round(cnyPerPower * 1_000_000) / 1_000_000],
+  );
+  res.json(rows[0]);
 });
 
 app.post('/api/admin/keys', requireUser, requireAdmin, async (req, res) => {
@@ -473,7 +533,7 @@ app.post('/api/admin/recharge-orders/:id/confirm', requireUser, requireAdmin, as
   const creditedMicros = Math.round(creditedPower * 1_000_000);
   const settlementRate = amountCny === null ? null : amountCny / creditedPower;
   const result = await transaction(async (client) => {
-    const order = await client.query("SELECT * FROM recharge_orders WHERE id = $1 AND status = 'pending' FOR UPDATE", [req.params.id]);
+    const order = await client.query("SELECT * FROM recharge_orders WHERE id = $1 AND status = 'pending' AND payment_channel = 'manual' FOR UPDATE", [req.params.id]);
     if (!order.rows[0]) return null;
     const item = order.rows[0];
     const account = await client.query('SELECT balance_micros FROM tenants WHERE id = $1', [item.tenant_id]);
@@ -500,16 +560,25 @@ app.use(express.static(publicDir, { extensions: ['html'] }));
 app.get('*splat', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 
 app.use((error, _req, res, _next) => {
-  console.error(error);
-  const status = error.code === 'SQLITE_CONSTRAINT_UNIQUE' || error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY' ? 409 : 500;
-  res.status(status).json({ error: status === 409 ? '数据已存在，请检查登录账号或模型 ID' : '服务器内部错误' });
+  if (!(error instanceof WechatPayError)) console.error(error);
+  const constraint = error.code === 'SQLITE_CONSTRAINT_UNIQUE' || error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY';
+  const status = constraint ? 409 : (Number(error.status) >= 400 && Number(error.status) < 600 ? Number(error.status) : 500);
+  const message = error instanceof WechatPayError
+    ? error.message
+    : (status === 409 ? '数据已存在，请检查登录账号或模型 ID' : '服务器内部错误');
+  res.status(status).json({ error: message, code: error.code || undefined });
 });
 
 const server = app.listen(config.port, () => {
   console.log(`超级中转站已启动: ${config.publicBaseUrl}`);
 });
+const paymentExpiryTimer = setInterval(() => {
+  expireWechatPayments().catch((error) => console.warn('清理过期微信订单失败', { message: error.message }));
+}, 60_000);
+paymentExpiryTimer.unref();
 
 async function shutdown() {
+  clearInterval(paymentExpiryTimer);
   server.close(async () => {
     await pool.end();
     process.exit(0);

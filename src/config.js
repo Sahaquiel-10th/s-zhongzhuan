@@ -15,7 +15,21 @@ export const config = {
   adminAccount: (process.env.ADMIN_ACCOUNT || process.env.ADMIN_EMAIL || 'admin').trim().toLowerCase(),
   adminPassword: process.env.ADMIN_PASSWORD || 'change-me-now',
   reservationOutputTokens: numberFromEnv('RESERVATION_OUTPUT_TOKENS', 2048),
+  wechatPay: {
+    appId: process.env.WECHAT_PAY_APP_ID || '',
+    mchId: process.env.WECHAT_PAY_MCH_ID || '',
+    merchantSerialNo: process.env.WECHAT_PAY_MERCHANT_SERIAL_NO || '',
+    privateKeyPath: process.env.WECHAT_PAY_PRIVATE_KEY_PATH || '',
+    publicKeyId: process.env.WECHAT_PAY_PUBLIC_KEY_ID || '',
+    publicKeyPath: process.env.WECHAT_PAY_PUBLIC_KEY_PATH || '',
+    apiV3Key: process.env.WECHAT_PAY_API_V3_KEY || '',
+    notifyUrl: process.env.WECHAT_PAY_NOTIFY_URL || '',
+  },
 };
+
+export function isWechatPayConfigured() {
+  return Object.values(config.wechatPay).every((value) => String(value).trim());
+}
 
 export function assertProductionConfig() {
   const missing = [];
