@@ -366,7 +366,10 @@ app.get('/api/admin/dashboard', requireUser, requireAdmin, async (_req, res) => 
       (SELECT count(*) FROM model_routes r WHERE r.tenant_id = t.id AND r.active = true) AS model_count
       FROM tenants t LEFT JOIN users u ON u.tenant_id = t.id AND u.role = 'customer' ORDER BY t.created_at DESC`),
     pool.query(`SELECT c.id, c.tenant_id, c.label, c.base_url, c.protocol, c.supplier_group, c.active, c.created_at, t.name AS tenant_name,
-      (SELECT count(*) FROM model_routes r WHERE r.credential_id = c.id) AS route_count
+      (SELECT count(*) FROM model_routes r WHERE r.credential_id = c.id) AS route_count,
+      (SELECT count(DISTINCT r.tenant_id) FROM model_routes r WHERE r.credential_id = c.id) AS customer_count,
+      (SELECT count(*) FROM customer_api_keys k WHERE k.allowed_route_id IN
+        (SELECT r.id FROM model_routes r WHERE r.credential_id = c.id)) AS key_count
       FROM upstream_credentials c JOIN tenants t ON t.id = c.tenant_id ORDER BY c.created_at DESC`),
     pool.query(`SELECT r.*, t.name AS tenant_name, c.label AS credential_label, c.protocol
       FROM model_routes r JOIN tenants t ON t.id = r.tenant_id JOIN upstream_credentials c ON c.id = r.credential_id ORDER BY r.created_at DESC`),
@@ -496,10 +499,6 @@ app.patch('/api/admin/credentials/:id', requireUser, requireAdmin, async (req, r
 });
 
 app.delete('/api/admin/credentials/:id', requireUser, requireAdmin, async (req, res) => {
-  const usage = await pool.query('SELECT count(*) AS total FROM model_routes WHERE credential_id = $1', [req.params.id]);
-  if (Number(usage.rows[0].total) > 0) {
-    return res.status(409).json({ error: `该凭证正在被 ${usage.rows[0].total} 个 API 服务使用，不能删除；可以先停用` });
-  }
   const result = await pool.query('DELETE FROM upstream_credentials WHERE id = $1', [req.params.id]);
   if (!result.rowCount) return res.status(404).json({ error: '供应商凭证不存在' });
   res.status(204).end();
@@ -547,8 +546,8 @@ app.post('/api/admin/routes', requireUser, requireAdmin, async (req, res) => {
     let selectedCredentialId = credentialId;
     if (selectedCredentialId) {
       const selected = await client.query(
-        'SELECT id FROM upstream_credentials WHERE id = $1 AND tenant_id = $2 AND active = true',
-        [selectedCredentialId, tenantId],
+        'SELECT id FROM upstream_credentials WHERE id = $1 AND active = true',
+        [selectedCredentialId],
       );
       if (!selected.rows[0]) return null;
     } else {
@@ -578,7 +577,7 @@ app.post('/api/admin/routes', requireUser, requireAdmin, async (req, res) => {
     );
     return rows[0];
   });
-  if (!result) return res.status(400).json({ error: '供应商凭证不属于所选账户或已停用' });
+  if (!result) return res.status(400).json({ error: '供应商连接不存在或已停用' });
   res.status(201).json(result);
 });
 
