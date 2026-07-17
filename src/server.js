@@ -86,11 +86,11 @@ app.use(cookieParser());
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
 app.post('/api/auth/login', authLimiter, async (req, res) => {
-  const email = String(req.body.email || '').trim().toLowerCase();
-  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1 AND active = true', [email]);
+  const account = String(req.body.account || req.body.email || '').trim().toLowerCase();
+  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1 AND active = true', [account]);
   const user = rows[0];
   if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash))) {
-    return res.status(401).json({ error: '邮箱或密码错误' });
+    return res.status(401).json({ error: '账号或密码错误' });
   }
   issueSession(res, user);
   res.json({ user: { id: user.id, email: user.email, displayName: user.display_name, role: user.role, tenantId: user.tenant_id } });
@@ -300,7 +300,7 @@ app.get('/api/customer/export/:kind', requireUser, async (req, res) => {
 
 app.get('/api/admin/dashboard', requireUser, requireAdmin, async (_req, res) => {
   const [tenants, credentials, routes, keys, orders, settings] = await Promise.all([
-    pool.query(`SELECT t.*, u.email AS owner_email,
+    pool.query(`SELECT t.*, u.email AS owner_account,
       (SELECT count(*) FROM model_routes r WHERE r.tenant_id = t.id AND r.active = true) AS model_count
       FROM tenants t LEFT JOIN users u ON u.tenant_id = t.id AND u.role = 'customer' ORDER BY t.created_at DESC`),
     pool.query(`SELECT c.id, c.tenant_id, c.label, c.base_url, c.protocol, c.supplier_group, c.active, c.created_at, t.name AS tenant_name
@@ -356,15 +356,18 @@ app.patch('/api/admin/keys/:id', requireUser, requireAdmin, async (req, res) => 
 });
 
 app.post('/api/admin/tenants', requireUser, requireAdmin, async (req, res) => {
-  const { name, ownerEmail, ownerPassword } = req.body;
-  if (!name || !ownerEmail || String(ownerPassword || '').length < 8) return res.status(400).json({ error: '客户名称、邮箱和至少 8 位密码为必填项' });
+  const { name, ownerPassword } = req.body;
+  const ownerAccount = String(req.body.ownerAccount || req.body.ownerEmail || '').trim().toLowerCase();
+  if (!name || ownerAccount.length < 3 || /\s/.test(ownerAccount) || String(ownerPassword || '').length < 8) {
+    return res.status(400).json({ error: '客户名称、至少 3 位且不含空格的账号、至少 8 位密码为必填项' });
+  }
   const passwordHash = await bcrypt.hash(ownerPassword, 12);
   const result = await transaction(async (client) => {
     const tenant = await client.query('INSERT INTO tenants (name) VALUES ($1) RETURNING *', [String(name).trim()]);
     const user = await client.query(
       `INSERT INTO users (tenant_id, email, password_hash, display_name, role)
        VALUES ($1, $2, $3, $4, 'customer') RETURNING id, email, display_name, role`,
-      [tenant.rows[0].id, String(ownerEmail).trim().toLowerCase(), passwordHash, String(name).trim()],
+      [tenant.rows[0].id, ownerAccount, passwordHash, String(name).trim()],
     );
     return { tenant: tenant.rows[0], user: user.rows[0] };
   });
@@ -499,7 +502,7 @@ app.get('*splat', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')
 app.use((error, _req, res, _next) => {
   console.error(error);
   const status = error.code === 'SQLITE_CONSTRAINT_UNIQUE' || error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY' ? 409 : 500;
-  res.status(status).json({ error: status === 409 ? '数据已存在，请检查邮箱或模型 ID' : '服务器内部错误' });
+  res.status(status).json({ error: status === 409 ? '数据已存在，请检查登录账号或模型 ID' : '服务器内部错误' });
 });
 
 const server = app.listen(config.port, () => {

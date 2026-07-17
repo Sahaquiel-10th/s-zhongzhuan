@@ -27,7 +27,7 @@ await pool.query(
   `INSERT INTO users (email, password_hash, display_name, role)
    VALUES ($1, $2, '系统管理员', 'admin')
    ON CONFLICT (email) DO NOTHING`,
-  [config.adminEmail, passwordHash],
+  [config.adminAccount, passwordHash],
 );
 
 console.log('数据库迁移完成');

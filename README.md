@@ -52,7 +52,7 @@ GET /v1/notices
 
 ## 当前能力
 
-- 管理员与普通账户两种登录角色。
+- 管理员与普通账户两种登录角色；登录账号不要求是邮箱，旧邮箱账号保持兼容。
 - 电力余额、API Key、服务、通知和调用记录按租户隔离。
 - OpenAI `models`、`chat/completions`、`responses` 和 Anthropic `messages` 代理。
 - 普通响应和 SSE 流式响应。

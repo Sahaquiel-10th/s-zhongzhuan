@@ -12,7 +12,7 @@ export const config = {
   databasePath: process.env.NODE_ENV === 'test' ? ':memory:' : (process.env.DATABASE_PATH || './data/super-relay.db'),
   sessionSecret: process.env.SESSION_SECRET || 'development-only-session-secret',
   encryptionKey: process.env.UPSTREAM_KEY_ENCRYPTION_KEY,
-  adminEmail: (process.env.ADMIN_EMAIL || 'admin@example.com').toLowerCase(),
+  adminAccount: (process.env.ADMIN_ACCOUNT || process.env.ADMIN_EMAIL || 'admin').trim().toLowerCase(),
   adminPassword: process.env.ADMIN_PASSWORD || 'change-me-now',
   reservationOutputTokens: numberFromEnv('RESERVATION_OUTPUT_TOKENS', 2048),
 };

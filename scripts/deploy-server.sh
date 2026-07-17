@@ -6,7 +6,7 @@ REPOSITORY="https://github.com/Sahaquiel-10th/s-zhongzhuan.git"
 SOURCE_ARCHIVE="https://codeload.github.com/Sahaquiel-10th/s-zhongzhuan/tar.gz/refs/heads/main"
 NODE_IMAGE_SOURCE="${NODE_IMAGE_SOURCE:-mirror.ccs.tencentyun.com/library/node:24-alpine}"
 PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-http://118.195.247.117}"
-ADMIN_EMAIL="${ADMIN_EMAIL:-admin@super-relay.local}"
+ADMIN_ACCOUNT="${ADMIN_ACCOUNT:-${ADMIN_EMAIL:-admin}}"
 
 sudo mkdir -p "$APP_DIR"
 sudo chown "$(id -un):$(id -gn)" "$APP_DIR"
@@ -47,7 +47,7 @@ PUBLIC_BASE_URL=$PUBLIC_BASE_URL
 DATABASE_PATH=/app/data/super-relay.db
 SESSION_SECRET=$session_secret
 UPSTREAM_KEY_ENCRYPTION_KEY=$encryption_key
-ADMIN_EMAIL=$ADMIN_EMAIL
+ADMIN_ACCOUNT=$ADMIN_ACCOUNT
 ADMIN_PASSWORD=$admin_password
 RESERVATION_OUTPUT_TOKENS=2048
 EOF
@@ -61,8 +61,8 @@ if [[ "$NODE_IMAGE_SOURCE" != "node:24-alpine" ]]; then
   sudo docker tag "$NODE_IMAGE_SOURCE" node:24-alpine
 fi
 
-sudo docker-compose down
-sudo docker-compose up --build -d
+sudo docker compose down
+sudo docker compose up --build -d
 
 sudo tee /etc/nginx/sites-available/super-relay >/dev/null <<'NGINX'
 server {
@@ -91,6 +91,6 @@ sudo systemctl reload nginx
 
 echo "DEPLOY_DONE"
 echo "URL=$PUBLIC_BASE_URL"
-echo "ADMIN_EMAIL=$ADMIN_EMAIL"
+echo "ADMIN_ACCOUNT=$ADMIN_ACCOUNT"
 echo "ADMIN_PASSWORD=$(cat "$HOME/super-relay-admin-password.txt")"
-sudo docker-compose ps
+sudo docker compose ps
