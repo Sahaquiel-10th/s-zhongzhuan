@@ -34,7 +34,6 @@ function routePricing(route) {
     pricingLabel: route.pricing_label,
     effectiveAt: route.pricing_updated_at,
     unit: 'power',
-    powerEqualsUsd: 1,
     perMillionTokens: {
       customer: {
         input: Number(route.customer_input_power_per_million),
@@ -198,7 +197,7 @@ proxyRouter.get('/pricing', requireCustomerApiKey, async (req, res, next) => {
         ORDER BY r.display_name`,
       [req.apiPrincipal.tenant_id, req.apiPrincipal.access_mode, req.apiPrincipal.allowed_route_id],
     );
-    res.json({ object: 'pricing.list', unit: 'power', power_equals_usd: 1, data: rows.map(routePricing) });
+    res.json({ object: 'pricing.list', unit: 'power', data: rows.map(routePricing) });
   } catch (error) { next(error); }
 });
 

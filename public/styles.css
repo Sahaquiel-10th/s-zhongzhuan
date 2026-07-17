@@ -216,6 +216,7 @@ dialog::backdrop { background: rgba(8, 24, 29, 0.66); }
 .payment-status.expired, .payment-status.failed, .payment-status.closed { background: #e9edef; color: #687680; }
 .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 11px; }
 .form-grid.three { grid-template-columns: repeat(3, 1fr); }
+.field-help { display: block; margin-top: 6px; color: var(--muted); font-size: 10px; font-weight: 500; line-height: 1.5; }
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 20; padding: 12px 15px; border-radius: 6px; background: var(--nav); color: white; opacity: 0; transform: translateY(10px); transition: 160ms ease; pointer-events: none; }
 .toast.show { opacity: 1; transform: translateY(0); }
 

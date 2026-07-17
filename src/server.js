@@ -365,7 +365,8 @@ app.get('/api/admin/dashboard', requireUser, requireAdmin, async (_req, res) => 
     pool.query(`SELECT t.*, u.id AS owner_user_id, u.email AS owner_account,
       (SELECT count(*) FROM model_routes r WHERE r.tenant_id = t.id AND r.active = true) AS model_count
       FROM tenants t LEFT JOIN users u ON u.tenant_id = t.id AND u.role = 'customer' ORDER BY t.created_at DESC`),
-    pool.query(`SELECT c.id, c.tenant_id, c.label, c.base_url, c.protocol, c.supplier_group, c.active, c.created_at, t.name AS tenant_name
+    pool.query(`SELECT c.id, c.tenant_id, c.label, c.base_url, c.protocol, c.supplier_group, c.active, c.created_at, t.name AS tenant_name,
+      (SELECT count(*) FROM model_routes r WHERE r.credential_id = c.id) AS route_count
       FROM upstream_credentials c JOIN tenants t ON t.id = c.tenant_id ORDER BY c.created_at DESC`),
     pool.query(`SELECT r.*, t.name AS tenant_name, c.label AS credential_label, c.protocol
       FROM model_routes r JOIN tenants t ON t.id = r.tenant_id JOIN upstream_credentials c ON c.id = r.credential_id ORDER BY r.created_at DESC`),
@@ -494,6 +495,16 @@ app.patch('/api/admin/credentials/:id', requireUser, requireAdmin, async (req, r
   res.json(rows[0]);
 });
 
+app.delete('/api/admin/credentials/:id', requireUser, requireAdmin, async (req, res) => {
+  const usage = await pool.query('SELECT count(*) AS total FROM model_routes WHERE credential_id = $1', [req.params.id]);
+  if (Number(usage.rows[0].total) > 0) {
+    return res.status(409).json({ error: `该凭证正在被 ${usage.rows[0].total} 个 API 服务使用，不能删除；可以先停用` });
+  }
+  const result = await pool.query('DELETE FROM upstream_credentials WHERE id = $1', [req.params.id]);
+  if (!result.rowCount) return res.status(404).json({ error: '供应商凭证不存在' });
+  res.status(204).end();
+});
+
 app.patch('/api/admin/users/:id/password', requireUser, requireAdmin, async (req, res) => {
   const newPassword = String(req.body.newPassword || '');
   if (newPassword.length < 8) return res.status(400).json({ error: '临时密码至少需要 8 位' });
@@ -509,33 +520,66 @@ app.patch('/api/admin/users/:id/password', requireUser, requireAdmin, async (req
 
 app.post('/api/admin/routes', requireUser, requireAdmin, async (req, res) => {
   const { tenantId, credentialId, publicModelId, upstreamModelId, displayName } = req.body;
-  if (!tenantId || !credentialId || !publicModelId || !upstreamModelId || !displayName) return res.status(400).json({ error: '模型配置不完整' });
+  if (!tenantId || !publicModelId || !upstreamModelId || !displayName) return res.status(400).json({ error: '模型配置不完整' });
   const serviceMode = req.body.serviceMode === 'managed' ? 'managed' : 'self_service';
   let prices;
   try { prices = pricingFields(req.body); }
   catch (error) { return res.status(400).json({ error: error.message }); }
   const pricingLabel = String(req.body.pricingLabel || '当前价格').trim();
-  const { rows } = await pool.query(
-    `INSERT INTO model_routes
-      (tenant_id, credential_id, public_model_id, upstream_model_id, display_name,
-       input_usd_per_million, output_usd_per_million, billing_factor,
-       official_input_cny_per_million, official_cached_input_cny_per_million, official_output_cny_per_million,
-       service_mode, customer_input_power_per_million, customer_cached_input_power_per_million, customer_output_power_per_million,
-       reference_input_power_per_million, reference_cached_input_power_per_million, reference_output_power_per_million,
-       upstream_input_power_per_million, upstream_cached_input_power_per_million, upstream_output_power_per_million,
-       pricing_label)
-     SELECT $1, c.id, $3, $4, $5, 0, 0, 1, 0, 0, 0,
-            $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-       FROM upstream_credentials c
-      WHERE c.id = $2 AND c.tenant_id = $1
-     RETURNING *`,
-    [tenantId, credentialId, String(publicModelId).trim(), String(upstreamModelId).trim(), String(displayName).trim(),
-      serviceMode, prices.customerInput, prices.customerCachedInput, prices.customerOutput,
-      prices.referenceInput, prices.referenceCachedInput, prices.referenceOutput,
-      prices.upstreamInput, prices.upstreamCachedInput, prices.upstreamOutput, pricingLabel],
-  );
-  if (!rows[0]) return res.status(400).json({ error: '供应商凭证不属于所选客户' });
-  res.status(201).json(rows[0]);
+  let newCredential = null;
+  if (!credentialId) {
+    const apiKey = String(req.body.apiKey || '').trim();
+    const credentialLabel = String(req.body.credentialLabel || 'YYLX Anthropic').trim();
+    const credentialBaseUrl = String(req.body.credentialBaseUrl || 'https://app.yylx.io/v1/messages').trim();
+    const credentialProtocol = req.body.credentialProtocol === 'openai' ? 'openai' : 'anthropic';
+    if (!apiKey || !credentialLabel) return res.status(400).json({ error: '该账户还没有供应商连接，请粘贴供应商 API Key' });
+    let parsed;
+    try { parsed = new URL(credentialBaseUrl); } catch { return res.status(400).json({ error: '供应商 Base URL 格式无效' }); }
+    if (parsed.protocol !== 'https:' && config.env === 'production') return res.status(400).json({ error: '生产环境 Base URL 必须使用 HTTPS' });
+    newCredential = {
+      label: credentialLabel,
+      baseUrl: parsed.toString().replace(/\/$/, ''),
+      protocol: credentialProtocol,
+      encryptedKey: encryptSecret(apiKey),
+    };
+  }
+  const result = await transaction(async (client) => {
+    let selectedCredentialId = credentialId;
+    if (selectedCredentialId) {
+      const selected = await client.query(
+        'SELECT id FROM upstream_credentials WHERE id = $1 AND tenant_id = $2 AND active = true',
+        [selectedCredentialId, tenantId],
+      );
+      if (!selected.rows[0]) return null;
+    } else {
+      const inserted = await client.query(
+        `INSERT INTO upstream_credentials (tenant_id, label, base_url, api_key_encrypted, protocol)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [tenantId, newCredential.label, newCredential.baseUrl, newCredential.encryptedKey, newCredential.protocol],
+      );
+      selectedCredentialId = inserted.rows[0].id;
+    }
+    const { rows } = await client.query(
+      `INSERT INTO model_routes
+        (tenant_id, credential_id, public_model_id, upstream_model_id, display_name,
+         input_usd_per_million, output_usd_per_million, billing_factor,
+         official_input_cny_per_million, official_cached_input_cny_per_million, official_output_cny_per_million,
+         service_mode, customer_input_power_per_million, customer_cached_input_power_per_million, customer_output_power_per_million,
+         reference_input_power_per_million, reference_cached_input_power_per_million, reference_output_power_per_million,
+         upstream_input_power_per_million, upstream_cached_input_power_per_million, upstream_output_power_per_million,
+         pricing_label)
+       VALUES ($1, $2, $3, $4, $5, 0, 0, 1, 0, 0, 0,
+               $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       RETURNING *`,
+      [tenantId, selectedCredentialId, String(publicModelId).trim(), String(upstreamModelId).trim(), String(displayName).trim(),
+        serviceMode, prices.customerInput, prices.customerCachedInput, prices.customerOutput,
+        prices.referenceInput, prices.referenceCachedInput, prices.referenceOutput,
+        prices.upstreamInput, prices.upstreamCachedInput, prices.upstreamOutput, pricingLabel],
+    );
+    return rows[0];
+  });
+  if (!result) return res.status(400).json({ error: '供应商凭证不属于所选账户或已停用' });
+  res.status(201).json(result);
 });
 
 app.patch('/api/admin/routes/:id', requireUser, requireAdmin, async (req, res) => {
@@ -619,8 +663,11 @@ app.use(express.static(publicDir, { extensions: ['html'] }));
 app.get('*splat', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 
 app.use((error, _req, res, _next) => {
-  if (!(error instanceof WechatPayError)) console.error(error);
-  const constraint = error.code === 'SQLITE_CONSTRAINT_UNIQUE' || error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY';
+  const constraint = error.code === 'SQLITE_CONSTRAINT_UNIQUE'
+    || error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY'
+    || Number(error.errcode) === 2067
+    || error.errstr === 'constraint failed';
+  if (!(error instanceof WechatPayError) && !constraint) console.error(error);
   const status = constraint ? 409 : (Number(error.status) >= 400 && Number(error.status) < 600 ? Number(error.status) : 500);
   const message = error instanceof WechatPayError
     ? error.message
