@@ -11,7 +11,7 @@ const cookieOptions = {
 };
 
 export function issueSession(res, user) {
-  const token = jwt.sign({ sub: user.id, role: user.role, tenantId: user.tenant_id }, config.sessionSecret, { expiresIn: '12h' });
+  const token = jwt.sign({ sub: user.id, role: user.role, tenantId: user.tenant_id, sv: Number(user.session_version || 1) }, config.sessionSecret, { expiresIn: '12h' });
   res.cookie(cookieName, token, {
     ...cookieOptions,
     maxAge: 12 * 60 * 60 * 1000,
@@ -26,10 +26,12 @@ export async function requireUser(req, res, next) {
   try {
     const payload = jwt.verify(req.cookies[cookieName], config.sessionSecret);
     const { rows } = await pool.query(
-      'SELECT id, email, display_name, role, tenant_id, active FROM users WHERE id = $1',
+      'SELECT id, email, display_name, role, tenant_id, active, session_version FROM users WHERE id = $1',
       [payload.sub],
     );
-    if (!rows[0]?.active) return res.status(401).json({ error: '登录已失效' });
+    if (!rows[0]?.active || Number(payload.sv ?? 1) !== Number(rows[0].session_version)) {
+      return res.status(401).json({ error: '登录已失效，请重新登录' });
+    }
     req.user = rows[0];
     next();
   } catch {

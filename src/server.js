@@ -124,6 +124,24 @@ app.get('/api/me', requireUser, async (req, res) => {
   res.json({ user: req.user, tenant, publicBaseUrl: config.publicBaseUrl });
 });
 
+app.patch('/api/me/password', requireUser, async (req, res) => {
+  const currentPassword = String(req.body.currentPassword || '');
+  const newPassword = String(req.body.newPassword || '');
+  if (newPassword.length < 8) return res.status(400).json({ error: '新密码至少需要 8 位' });
+  if (currentPassword === newPassword) return res.status(400).json({ error: '新密码不能与当前密码相同' });
+  const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1 AND active = true', [req.user.id]);
+  if (!rows[0] || !(await bcrypt.compare(currentPassword, rows[0].password_hash))) {
+    return res.status(400).json({ error: '当前密码不正确' });
+  }
+  const updated = await pool.query(
+    `UPDATE users SET password_hash = $2, session_version = session_version + 1
+      WHERE id = $1 RETURNING *`,
+    [req.user.id, await bcrypt.hash(newPassword, 12)],
+  );
+  issueSession(res, updated.rows[0]);
+  res.json({ ok: true });
+});
+
 app.get('/api/customer/dashboard', requireUser, async (req, res) => {
   if (!req.user.tenant_id) return res.status(403).json({ error: '管理员没有客户账本' });
   const tenantId = req.user.tenant_id;
@@ -344,7 +362,7 @@ app.get('/api/customer/export/:kind', requireUser, async (req, res) => {
 
 app.get('/api/admin/dashboard', requireUser, requireAdmin, async (_req, res) => {
   const [tenants, credentials, routes, keys, orders, settings] = await Promise.all([
-    pool.query(`SELECT t.*, u.email AS owner_account,
+    pool.query(`SELECT t.*, u.id AS owner_user_id, u.email AS owner_account,
       (SELECT count(*) FROM model_routes r WHERE r.tenant_id = t.id AND r.active = true) AS model_count
       FROM tenants t LEFT JOIN users u ON u.tenant_id = t.id AND u.role = 'customer' ORDER BY t.created_at DESC`),
     pool.query(`SELECT c.id, c.tenant_id, c.label, c.base_url, c.protocol, c.supplier_group, c.active, c.created_at, t.name AS tenant_name
@@ -446,6 +464,47 @@ app.post('/api/admin/credentials', requireUser, requireAdmin, async (req, res) =
     [tenantId, String(label).trim(), parsed.toString().replace(/\/$/, ''), encryptSecret(apiKey), protocol, supplierGroup || null],
   );
   res.status(201).json(rows[0]);
+});
+
+app.patch('/api/admin/credentials/:id', requireUser, requireAdmin, async (req, res) => {
+  const current = await pool.query('SELECT * FROM upstream_credentials WHERE id = $1', [req.params.id]);
+  if (!current.rows[0]) return res.status(404).json({ error: '供应商凭证不存在' });
+  const credential = current.rows[0];
+  const label = String(req.body.label ?? credential.label).trim();
+  const baseUrl = String(req.body.baseUrl ?? credential.base_url).trim();
+  const protocol = req.body.protocol === undefined ? credential.protocol : String(req.body.protocol);
+  const supplierGroup = String(req.body.supplierGroup ?? credential.supplier_group ?? '').trim();
+  const replacementKey = String(req.body.apiKey || '').trim();
+  const active = req.body.active === undefined ? Boolean(credential.active) : Boolean(req.body.active);
+  if (!label || !baseUrl || !['openai', 'anthropic'].includes(protocol)) {
+    return res.status(400).json({ error: '凭证名称、Base URL 和协议无效' });
+  }
+  let parsed;
+  try { parsed = new URL(baseUrl); } catch { return res.status(400).json({ error: 'Base URL 格式无效' }); }
+  if (parsed.protocol !== 'https:' && config.env === 'production') return res.status(400).json({ error: '生产环境 Base URL 必须使用 HTTPS' });
+  const encryptedKey = replacementKey ? encryptSecret(replacementKey) : credential.api_key_encrypted;
+  const { rows } = await pool.query(
+    `UPDATE upstream_credentials SET label = $2, base_url = $3, protocol = $4,
+      supplier_group = $5, api_key_encrypted = $6, active = $7
+      WHERE id = $1
+      RETURNING id, tenant_id, label, base_url, protocol, supplier_group, active, created_at`,
+    [req.params.id, label, parsed.toString().replace(/\/$/, ''), protocol,
+      supplierGroup || null, encryptedKey, active],
+  );
+  res.json(rows[0]);
+});
+
+app.patch('/api/admin/users/:id/password', requireUser, requireAdmin, async (req, res) => {
+  const newPassword = String(req.body.newPassword || '');
+  if (newPassword.length < 8) return res.status(400).json({ error: '临时密码至少需要 8 位' });
+  const { rows } = await pool.query(
+    `UPDATE users SET password_hash = $2, session_version = session_version + 1
+      WHERE id = $1 AND role = 'customer' AND active = true
+      RETURNING id, email`,
+    [req.params.id, await bcrypt.hash(newPassword, 12)],
+  );
+  if (!rows[0]) return res.status(404).json({ error: '使用账号不存在或已停用' });
+  res.json({ ok: true, account: rows[0].email });
 });
 
 app.post('/api/admin/routes', requireUser, requireAdmin, async (req, res) => {
