@@ -11,7 +11,8 @@ export function rewriteSseLine(line, route) {
   if (!line.startsWith('data: ') || line.includes('[DONE]')) return { line, usagePayload: null };
   try {
     const payload = maskResponseModel(JSON.parse(line.slice(6)), route);
-    return { line: `data: ${JSON.stringify(payload)}`, usagePayload: payload.usage ? payload : null };
+    const hasUsage = payload.usage || payload.message?.usage || payload.response?.usage;
+    return { line: `data: ${JSON.stringify(payload)}`, usagePayload: hasUsage ? payload : null };
   } catch {
     return { line, usagePayload: null };
   }

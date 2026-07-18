@@ -18,22 +18,71 @@ export function estimateTokens(value) {
 }
 
 function usageObject(payload) {
-  return payload?.usage || payload?.response?.usage || {};
+  return payload?.usage || payload?.message?.usage || payload?.response?.usage || {};
+}
+
+function tokenCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.max(0, count) : null;
+}
+
+function mergeUsageValue(current, incoming) {
+  if (!incoming || typeof incoming !== 'object') return current;
+  const merged = { ...current };
+  for (const [key, value] of Object.entries(incoming)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      merged[key] = mergeUsageValue(merged[key] || {}, value);
+    } else if (Number.isFinite(Number(value))) {
+      // Streaming suppliers can repeat cumulative usage. Keeping the largest value
+      // combines Anthropic's message_start/message_delta events without double-counting.
+      merged[key] = Math.max(Number(merged[key]) || 0, Number(value));
+    } else if (value !== undefined) {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+export function mergeUsage(current, payload) {
+  return mergeUsageValue(current || {}, usageObject(payload));
 }
 
 export function normalizeUsage(payload, requestBody, responseBody) {
   const usage = usageObject(payload);
-  const inputTokens = Number(usage.prompt_tokens ?? usage.input_tokens)
-    || estimateTokens(requestBody.messages ?? requestBody.input ?? requestBody);
-  const outputTokens = Number(usage.completion_tokens ?? usage.output_tokens)
-    || estimateTokens(responseBody?.choices ?? responseBody?.output ?? responseBody?.content ?? responseBody);
-  const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(
+  const reportedInputTokens = tokenCount(usage.prompt_tokens ?? usage.input_tokens);
+  const reportedOutputTokens = tokenCount(usage.completion_tokens ?? usage.output_tokens);
+  const cacheReadInputTokens = tokenCount(
     usage.prompt_tokens_details?.cached_tokens
       ?? usage.input_tokens_details?.cached_tokens
       ?? usage.cache_read_input_tokens
       ?? 0,
-  )));
-  return { inputTokens, outputTokens, cachedInputTokens };
+  ) || 0;
+  const cacheCreationEphemeral5mInputTokens = tokenCount(usage.cache_creation?.ephemeral_5m_input_tokens) || 0;
+  const cacheCreationEphemeral1hInputTokens = tokenCount(usage.cache_creation?.ephemeral_1h_input_tokens) || 0;
+  const cacheCreationInputTokens = tokenCount(usage.cache_creation_input_tokens)
+    ?? (cacheCreationEphemeral5mInputTokens + cacheCreationEphemeral1hInputTokens);
+  const rawInputTokens = reportedInputTokens
+    ?? estimateTokens(requestBody.messages ?? requestBody.input ?? requestBody);
+  // OpenAI prompt/input token totals include cache reads; Anthropic's input_tokens,
+  // cache_creation_input_tokens and cache_read_input_tokens are independent counters.
+  const inputIncludesCacheRead = usage.prompt_tokens !== undefined
+    || usage.prompt_tokens_details?.cached_tokens !== undefined
+    || usage.input_tokens_details?.cached_tokens !== undefined;
+  const inputTokens = inputIncludesCacheRead
+    ? Math.max(0, rawInputTokens - cacheReadInputTokens)
+    : rawInputTokens;
+  const outputTokens = reportedOutputTokens
+    ?? estimateTokens(responseBody?.choices ?? responseBody?.output ?? responseBody?.content ?? responseBody);
+  return {
+    inputTokens,
+    outputTokens,
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+    cacheCreationEphemeral5mInputTokens,
+    cacheCreationEphemeral1hInputTokens,
+    // Backward-compatible name used by existing API consumers.
+    cachedInputTokens: cacheReadInputTokens,
+  };
 }
 
 export function calculateBilling({ usage, route }) {
@@ -43,15 +92,17 @@ export function calculateBilling({ usage, route }) {
   const referenceInputPrice = Number(route.reference_input_power_per_million);
   const referenceCachedInputPrice = Number(route.reference_cached_input_power_per_million);
   const referenceOutputPrice = Number(route.reference_output_power_per_million);
-  const uncachedInputTokens = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
+  const cacheCreationInputTokens = Number(usage.cacheCreationInputTokens) || 0;
+  const cacheReadInputTokens = Number(usage.cacheReadInputTokens ?? usage.cachedInputTokens) || 0;
+  const writeInputTokens = usage.inputTokens + cacheCreationInputTokens;
   const chargedPower = (
-    (uncachedInputTokens / 1_000_000) * inputPrice
-    + (usage.cachedInputTokens / 1_000_000) * cachedInputPrice
+    (writeInputTokens / 1_000_000) * inputPrice
+    + (cacheReadInputTokens / 1_000_000) * cachedInputPrice
     + (usage.outputTokens / 1_000_000) * outputPrice
   );
   const referencePower = (
-    (uncachedInputTokens / 1_000_000) * referenceInputPrice
-    + (usage.cachedInputTokens / 1_000_000) * referenceCachedInputPrice
+    (writeInputTokens / 1_000_000) * referenceInputPrice
+    + (cacheReadInputTokens / 1_000_000) * referenceCachedInputPrice
     + (usage.outputTokens / 1_000_000) * referenceOutputPrice
   );
   const referenceCostMicros = powerToMicros(referencePower);
@@ -79,7 +130,10 @@ export function reservationCost(route, body) {
 }
 
 export function pricingDisplay({ usage, billing }) {
-  const totalTokens = usage.inputTokens + usage.outputTokens;
+  const totalTokens = usage.inputTokens
+    + (Number(usage.cacheCreationInputTokens) || 0)
+    + (Number(usage.cacheReadInputTokens ?? usage.cachedInputTokens) || 0)
+    + usage.outputTokens;
   return {
     tokenText: `${totalTokens.toLocaleString('zh-CN')} tokens`,
     referenceText: `官方参考 ${(billing.referenceCostMicros / MICROS_PER_POWER).toFixed(6)} 电力`,

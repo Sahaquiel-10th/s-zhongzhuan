@@ -17,14 +17,14 @@
 
 数据库使用微电力作为最小单位：`1 电力 = 1,000,000 微电力`。每个 API 服务独立保存：
 
-- 客户输入、缓存输入和输出价：参与实际扣费。
-- 官方参考输入、缓存输入和输出价：只对客户展示。
+- 客户输入、缓存读取和输出价：参与实际扣费。
+- 官方参考输入、缓存读取和输出价：只对客户展示。
 - 供应商采购价：只对管理员展示，用于核算毛利。
 
 ```text
 实扣电力
-= 非缓存输入 Token ÷ 1,000,000 × 客户输入价
-+ 缓存输入 Token ÷ 1,000,000 × 客户缓存输入价
+=（普通输入 Token + 缓存写入 Token）÷ 1,000,000 × 客户输入价
++ 缓存读取 Token ÷ 1,000,000 × 客户缓存读取价
 + 输出 Token ÷ 1,000,000 × 客户输出价
 ```
 
@@ -50,9 +50,9 @@ GET /v1/usage?page=1&page_size=10
 
 `/v1/pricing` 只返回价格，`/v1/notices` 只返回通知。`/v1/account` 返回当前余额、可用电力、预留电力及本月/累计用量汇总；`/v1/usage` 返回当前租户的分页计量日志，`page_size` 支持 `5` 或 `10`。这四个接口均为只读，可使用 `Authorization: Bearer sk-...` 或 `x-api-key: sk-...` 鉴权；查询被限定在 API Key 所属租户内。网页后台也可查看价格、余额和使用记录。
 
-`/v1/usage` 的每条记录包含 `time`、`model`、`inputTokens`、`cachedInputTokens`、`outputTokens`、`officialReferencePower`、`comparisonFactor`、`chargedPower`、`status`、`requestId` 等字段，不返回供应商成本或上游 Key。
+`/v1/usage` 的每条记录包含 `time`、`model`、`inputTokens`、`cacheCreationInputTokens`、`cacheReadInputTokens`、`cachedInputTokens`（兼容字段，等同缓存读取）、`outputTokens`、`totalTokens`、`officialReferencePower`、`comparisonFactor`、`chargedPower`、`status`、`requestId` 等字段，不返回供应商成本或上游 Key。
 
-模型响应包含 `X-S-Pricing-Version`、客户输入/缓存/输出价、官方参考价和 `X-S-Input-Factor` / `X-S-Output-Factor` 等响应头。非流式成功响应另包含 `X-S-Billed-Power`。
+模型响应包含 `X-S-Pricing-Version`、客户输入/缓存读取/输出价、官方参考价和对应展示倍率等响应头。非流式成功响应另包含 `X-S-Billed-Power`。
 
 ## 当前能力
 

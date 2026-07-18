@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import express from 'express';
 import { pool, transaction } from './db.js';
 import { decryptSecret } from './crypto.js';
-import { calculateBilling, normalizeUsage, pricingDisplay, reservationCost } from './billing.js';
+import { calculateBilling, mergeUsage, normalizeUsage, pricingDisplay, reservationCost } from './billing.js';
 import { requireCustomerApiKey } from './auth.js';
 import { maskResponseModel, rewriteSseLine } from './sanitize.js';
 import { acceptsBoundModelRequest } from './model-routing.js';
@@ -122,17 +122,21 @@ async function settleRequest({ principal, route, reservation, usage, requestId }
     await client.query(
       `INSERT INTO usage_logs
         (tenant_id, api_key_id, model_id, input_tokens, output_tokens, cached_input_tokens,
+         cache_creation_input_tokens, cache_read_input_tokens,
+         cache_creation_ephemeral_5m_input_tokens, cache_creation_ephemeral_1h_input_tokens,
         official_cost_micros, charged_cost_micros, customer_discount,
          official_input_price, official_cached_input_price, official_output_price,
          metadata_json, status, request_id, service_mode, pricing_version_snapshot, pricing_label_snapshot,
          customer_input_power_price, customer_cached_input_power_price, customer_output_power_price,
          reference_input_power_price, reference_cached_input_power_price, reference_output_power_price,
          effective_billing_factor)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'success', $14,
-               $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'success', $18,
+               $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)`,
       [
         principal.tenant_id, principal.api_key_id, route.public_model_id, usage.inputTokens, usage.outputTokens,
-        usage.cachedInputTokens, billing.referenceCostMicros, cost, billing.factor,
+        usage.cacheReadInputTokens, usage.cacheCreationInputTokens, usage.cacheReadInputTokens,
+        usage.cacheCreationEphemeral5mInputTokens, usage.cacheCreationEphemeral1hInputTokens,
+        billing.referenceCostMicros, cost, billing.factor,
         route.reference_input_power_per_million, route.reference_cached_input_power_per_million,
         route.reference_output_power_per_million, JSON.stringify({ billing: { usage, display, pricing: routePricing(route) } }), requestId,
         route.service_mode, route.pricing_version, route.pricing_label,
@@ -196,6 +200,8 @@ proxyRouter.get('/account', requireCustomerApiKey, async (req, res, next) => {
       pool.query('SELECT name, balance_micros, reserved_micros, active FROM tenants WHERE id = $1', [tenantId]),
       pool.query(`SELECT COALESCE(sum(charged_cost_micros), 0) AS charged_micros,
           COALESCE(sum(input_tokens), 0) AS input_tokens,
+          COALESCE(sum(cache_creation_input_tokens), 0) AS cache_creation_input_tokens,
+          COALESCE(sum(cache_read_input_tokens), 0) AS cache_read_input_tokens,
           COALESCE(sum(output_tokens), 0) AS output_tokens,
           count(*) AS requests
         FROM usage_logs
@@ -203,6 +209,8 @@ proxyRouter.get('/account', requireCustomerApiKey, async (req, res, next) => {
           AND created_at >= datetime('now', 'start of month')`, [tenantId]),
       pool.query(`SELECT COALESCE(sum(charged_cost_micros), 0) AS charged_micros,
           COALESCE(sum(input_tokens), 0) AS input_tokens,
+          COALESCE(sum(cache_creation_input_tokens), 0) AS cache_creation_input_tokens,
+          COALESCE(sum(cache_read_input_tokens), 0) AS cache_read_input_tokens,
           COALESCE(sum(output_tokens), 0) AS output_tokens,
           count(*) AS requests
         FROM usage_logs WHERE tenant_id = $1 AND status = 'success'`, [tenantId]),
@@ -211,8 +219,14 @@ proxyRouter.get('/account', requireCustomerApiKey, async (req, res, next) => {
     const toPower = (micros) => Number(micros || 0) / 1_000_000;
     const usageSummary = (row) => ({
       chargedPower: toPower(row?.charged_micros),
-      inputTokens: Number(row?.input_tokens || 0),
+      inputTokens: Number(row?.input_tokens || 0) + Number(row?.cache_creation_input_tokens || 0)
+        + Number(row?.cache_read_input_tokens || 0),
+      cacheCreationInputTokens: Number(row?.cache_creation_input_tokens || 0),
+      cacheReadInputTokens: Number(row?.cache_read_input_tokens || 0),
+      cachedInputTokens: Number(row?.cache_read_input_tokens || 0),
       outputTokens: Number(row?.output_tokens || 0),
+      totalTokens: Number(row?.input_tokens || 0) + Number(row?.cache_creation_input_tokens || 0)
+        + Number(row?.cache_read_input_tokens || 0) + Number(row?.output_tokens || 0),
       requests: Number(row?.requests || 0),
     });
     res.json({
@@ -236,6 +250,8 @@ proxyRouter.get('/usage', requireCustomerApiKey, async (req, res, next) => {
     const tenantId = req.apiPrincipal.tenant_id;
     const [items, count] = await Promise.all([
       pool.query(`SELECT model_id, input_tokens, output_tokens, cached_input_tokens,
+          cache_creation_input_tokens, cache_read_input_tokens,
+          cache_creation_ephemeral_5m_input_tokens, cache_creation_ephemeral_1h_input_tokens,
           official_cost_micros, charged_cost_micros, effective_billing_factor,
           pricing_version_snapshot, pricing_label_snapshot, service_mode,
           status, error_code, request_id, created_at
@@ -250,8 +266,12 @@ proxyRouter.get('/usage', requireCustomerApiKey, async (req, res, next) => {
         time: item.created_at,
         model: item.model_id,
         inputTokens: Number(item.input_tokens || 0),
-        cachedInputTokens: Number(item.cached_input_tokens || 0),
+        cacheCreationInputTokens: Number(item.cache_creation_input_tokens || 0),
+        cacheReadInputTokens: Number(item.cache_read_input_tokens || 0),
+        cachedInputTokens: Number(item.cache_read_input_tokens || 0),
         outputTokens: Number(item.output_tokens || 0),
+        totalTokens: Number(item.input_tokens || 0) + Number(item.cache_creation_input_tokens || 0)
+          + Number(item.cache_read_input_tokens || 0) + Number(item.output_tokens || 0),
         officialReferencePower: Number(item.official_cost_micros || 0) / 1_000_000,
         comparisonFactor: item.effective_billing_factor === null ? null : Number(item.effective_billing_factor),
         chargedPower: Number(item.charged_cost_micros || 0) / 1_000_000,
@@ -391,7 +411,7 @@ for (const path of ['/chat/completions', '/responses', '/messages']) {
       const decoder = new TextDecoder();
       let captured = '';
       let lineBuffer = '';
-      let usagePayload = null;
+      let streamedUsage = {};
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -402,16 +422,16 @@ for (const path of ['/chat/completions', '/responses', '/messages']) {
         lineBuffer = lines.pop() || '';
         for (const line of lines) {
           const rewritten = rewriteSseLine(line, route);
-          if (rewritten.usagePayload) usagePayload = rewritten.usagePayload;
+          if (rewritten.usagePayload) streamedUsage = mergeUsage(streamedUsage, rewritten.usagePayload);
           res.write(`${rewritten.line}\n`);
         }
       }
       if (lineBuffer) {
         const rewritten = rewriteSseLine(lineBuffer, route);
-        if (rewritten.usagePayload) usagePayload = rewritten.usagePayload;
+        if (rewritten.usagePayload) streamedUsage = mergeUsage(streamedUsage, rewritten.usagePayload);
         res.write(rewritten.line);
       }
-      const usage = normalizeUsage(usagePayload, req.body, captured);
+      const usage = normalizeUsage({ usage: streamedUsage }, req.body, captured);
       await settleRequest({ principal, route, reservation, usage, requestId });
       res.end();
     } catch (error) {

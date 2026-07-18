@@ -148,8 +148,8 @@ app.get('/api/customer/dashboard', requireUser, async (req, res) => {
   const [tenant, models, keys, usage, usageCount, ledger, ledgerCount, orders, notices, rechargeSettings] = await Promise.all([
     pool.query('SELECT id, name, balance_micros, reserved_micros, active FROM tenants WHERE id = $1', [tenantId]),
     pool.query(`SELECT r.id, r.public_model_id, r.display_name, r.active, r.service_mode, r.pricing_version, r.pricing_label, r.pricing_updated_at,
-      customer_input_power_per_million, customer_cached_input_power_per_million, customer_output_power_per_million,
-      reference_input_power_per_million, reference_cached_input_power_per_million, reference_output_power_per_million,
+      customer_input_power_per_million, customer_output_power_per_million,
+      reference_input_power_per_million, reference_output_power_per_million,
       c.protocol
       FROM model_routes r JOIN upstream_credentials c ON c.id = r.credential_id
       WHERE r.tenant_id = $1 ORDER BY r.display_name`, [tenantId]),
@@ -160,11 +160,13 @@ app.get('/api/customer/dashboard', requireUser, async (req, res) => {
       LEFT JOIN model_routes r ON r.id = k.allowed_route_id
       LEFT JOIN upstream_credentials c ON c.id = r.credential_id
       WHERE k.tenant_id = $1 ORDER BY k.created_at DESC`, [tenantId]),
-    pool.query(`SELECT model_id, input_tokens, output_tokens, cached_input_tokens,
+    pool.query(`SELECT model_id,
+      (input_tokens + cache_creation_input_tokens + cache_read_input_tokens) AS input_tokens,
+      output_tokens,
       official_cost_micros, charged_cost_micros, effective_billing_factor,
       pricing_version_snapshot, pricing_label_snapshot, service_mode,
-      customer_input_power_price, customer_cached_input_power_price, customer_output_power_price,
-      reference_input_power_price, reference_cached_input_power_price, reference_output_power_price,
+      customer_input_power_price, customer_output_power_price,
+      reference_input_power_price, reference_output_power_price,
       status, error_code, request_id, created_at
       FROM usage_logs WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 10`, [tenantId]),
     pool.query('SELECT count(*) AS total FROM usage_logs WHERE tenant_id = $1', [tenantId]),
@@ -303,7 +305,9 @@ app.get('/api/customer/usage', requireUser, async (req, res) => {
   const params = [req.user.tenant_id, startAt, endAt];
   const where = 'tenant_id = $1 AND ($2 IS NULL OR created_at >= $2) AND ($3 IS NULL OR created_at <= $3)';
   const [items, count] = await Promise.all([
-    pool.query(`SELECT model_id, input_tokens, output_tokens, cached_input_tokens,
+    pool.query(`SELECT model_id,
+      (input_tokens + cache_creation_input_tokens + cache_read_input_tokens) AS input_tokens,
+      output_tokens,
       official_cost_micros, charged_cost_micros, effective_billing_factor,
       pricing_version_snapshot, pricing_label_snapshot, service_mode,
       status, error_code, request_id, created_at
@@ -345,15 +349,16 @@ app.get('/api/customer/export/:kind', requireUser, async (req, res) => {
   const where = 'tenant_id = $1 AND ($2 IS NULL OR created_at >= $2) AND ($3 IS NULL OR created_at <= $3)';
   if (req.params.kind === 'usage') {
     const { rows } = await pool.query(
-      `SELECT created_at, request_id, model_id, service_mode, input_tokens, cached_input_tokens,
+      `SELECT created_at, request_id, model_id, service_mode,
+       (input_tokens + cache_creation_input_tokens + cache_read_input_tokens) AS input_tokens,
        output_tokens, official_cost_micros, charged_cost_micros, effective_billing_factor,
        pricing_label_snapshot, pricing_version_snapshot, status, error_code
        FROM usage_logs WHERE ${where} ORDER BY created_at DESC`, params,
     );
     return sendCsv(res, 'usage-logs.csv',
-      ['时间', '请求ID', '模型', '模式', '输入Token', '缓存Token', '输出Token', '官方参考电力', '实扣电力', '综合倍率', '价格标签', '价格版本', '状态', '错误码'],
+      ['时间', '请求ID', '模型', '模式', '输入Token', '输出Token', '总Token', '官方参考电力', '实扣电力', '综合倍率', '价格标签', '价格版本', '状态', '错误码'],
       rows.map((row) => [row.created_at, row.request_id, row.model_id, row.service_mode, row.input_tokens,
-        row.cached_input_tokens, row.output_tokens, Number(row.official_cost_micros) / 1_000_000,
+        row.output_tokens, Number(row.input_tokens) + Number(row.output_tokens), Number(row.official_cost_micros) / 1_000_000,
         Number(row.charged_cost_micros) / 1_000_000, row.effective_billing_factor,
         row.pricing_label_snapshot, row.pricing_version_snapshot, row.status, row.error_code]));
   }
